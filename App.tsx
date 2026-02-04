@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, ServiceCategory } from './types';
 import { Mascot } from './components/Mascot';
 import { Button } from './components/Button';
-import { LogOut, Settings, User as UserIcon, Save, CircleHelp, X, Phone, Mail, Store } from 'lucide-react';
+import { LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, Store } from 'lucide-react';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientDashboard } from './pages/ClientDashboard';
 import { WorkerDashboard } from './pages/WorkerDashboard';
@@ -341,7 +341,7 @@ export default function App() {
             {currentUser.role !== 'partner' && (
                 <button onClick={() => setCurrentPage('partners')} className={`p-2.5 rounded-2xl transition-all ${currentPage === 'partners' ? 'bg-orange-100 text-brand-orange' : 'text-slate-400 hover:bg-slate-50'}`}><Store size={22} /></button>
             )}
-            <button onClick={() => setShowHelp(true)} className="p-2.5 text-slate-400 hover:bg-slate-50 rounded-2xl"><CircleHelp size={22} /></button>
+            <button onClick={() => setShowHelp(true)} className="p-2.5 text-slate-400 hover:bg-slate-50 rounded-2xl"><HelpCircle size={22} /></button>
             <NotificationBell userId={currentUser.id} />
 
             {currentUser.role !== 'admin' && currentUser.role !== 'partner' && (
