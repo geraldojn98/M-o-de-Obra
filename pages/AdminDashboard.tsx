@@ -169,35 +169,35 @@ export const AdminDashboard: React.FC = () => {
 
       setLoading(true);
 
-      // Find users matching roles (Logic: user has allowed_roles intersecting with rolesToTarget)
-      // Supabase array filtering is tricky, so we filter in JS for simplicity in this context or use 'contains'
-      // Ideally we iterate.
-      
-      const targetUsers = users.filter(u => {
-          // check if ANY of u.allowed_roles is in rolesToTarget
-          return u.allowed_roles && u.allowed_roles.some((r: string) => rolesToTarget.includes(r));
-      });
+      try {
+        const targetUsers = users.filter(u => {
+            // Safety check for allowed_roles being null
+            return u.allowed_roles && Array.isArray(u.allowed_roles) && u.allowed_roles.some((r: string) => rolesToTarget.includes(r));
+        });
 
-      const notifications = targetUsers.map(u => ({
-          user_id: u.id,
-          title: notifTitle,
-          message: notifMsg,
-          type: 'info'
-      }));
+        const notifications = targetUsers.map(u => ({
+            user_id: u.id,
+            title: notifTitle,
+            message: notifMsg,
+            type: 'info'
+        }));
 
-      if(notifications.length > 0) {
-          const { error } = await supabase.from('notifications').insert(notifications);
-          if(error) alert("Erro ao enviar: " + error.message);
-          else {
-              alert(`Enviado para ${notifications.length} usuários.`);
-              setNotifTitle('');
-              setNotifMsg('');
-          }
-      } else {
-          alert("Nenhum usuário encontrado com esses perfis.");
+        if(notifications.length > 0) {
+            const { error } = await supabase.from('notifications').insert(notifications);
+            if(error) throw error;
+            
+            alert(`Enviado para ${notifications.length} usuários.`);
+            setNotifTitle('');
+            setNotifMsg('');
+        } else {
+            alert("Nenhum usuário encontrado com esses perfis.");
+        }
+      } catch (err: any) {
+          alert("Erro ao enviar notificação: " + err.message);
+          console.error(err);
+      } finally {
+          setLoading(false);
       }
-
-      setLoading(false);
   };
 
   const filteredUsers = users.filter(u => 

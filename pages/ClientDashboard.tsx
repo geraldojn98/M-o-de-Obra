@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Job, ServiceCategory } from '../types';
 import { Button } from '../components/Button';
 import * as Icons from 'lucide-react';
@@ -54,6 +54,12 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingDuration, setRatingDuration] = useState('');
 
+  // Camera State
+  const [showCameraPermission, setShowCameraPermission] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   useEffect(() => {
     fetchData();
   }, [user.id, activeTab]);
@@ -106,6 +112,54 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
       })));
     }
     setLoading(false);
+  };
+
+  // --- CAMERA FUNCTIONS ---
+
+  const handleStartCamera = async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment" } 
+        });
+        setCameraActive(true);
+        setShowCameraPermission(false);
+        if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play();
+        }
+    } catch (err) {
+        alert("Erro ao acessar câmera. Verifique permissões.");
+        setShowCameraPermission(false);
+    }
+  };
+
+  const handleCapture = () => {
+    if (videoRef.current) {
+        const canvas = document.createElement("canvas");
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+            ctx.drawImage(videoRef.current, 0, 0);
+            const dataUrl = canvas.toDataURL("image/jpeg");
+            setCapturedImage(dataUrl);
+            stopCamera();
+        }
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+        const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+        tracks.forEach(track => track.stop());
+        videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  };
+
+  const handleRetake = () => {
+    setCapturedImage(null);
+    handleStartCamera();
   };
 
   const handlePostJob = async (e: React.FormEvent) => {
@@ -222,7 +276,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
             status: 'completed',
             rating: ratingScore,
             duration_hours: parseFloat(ratingDuration),
-            client_evidence_url: 'https://via.placeholder.com/300?text=Evidence+Client' 
+            client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo'
         })
         .eq('id', job.id);
 
@@ -256,11 +310,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
       setModalType('rate');
       setRatingScore(5);
       setRatingDuration('');
+      setCapturedImage(null);
+      stopCamera();
   };
 
   const closeModal = () => {
       setModalType(null);
       setSelectedItem(null);
+      stopCamera();
+      setShowCameraPermission(false);
   };
 
   const fetchWorkersByCategory = async (category: string) => {
@@ -526,29 +584,70 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
       )}
 
       {modalType === 'rate' && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
-              <div className="bg-white rounded-xl w-full max-w-sm p-6 space-y-4">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in overflow-y-auto">
+              <div className="bg-white rounded-xl w-full max-w-sm p-6 space-y-4 my-auto">
                   <h3 className="text-lg font-bold text-slate-800">Avaliar Serviço</h3>
                   
-                  <div className="flex justify-center gap-2 my-4">
-                      {[1,2,3,4,5].map(s => (
-                          <button key={s} onClick={() => setRatingScore(s)} className={`text-3xl ${s <= ratingScore ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>
-                      ))}
-                  </div>
+                  {!cameraActive && !showCameraPermission && !capturedImage && (
+                    <>
+                        <div className="flex justify-center gap-2 my-4">
+                            {[1,2,3,4,5].map(s => (
+                                <button key={s} onClick={() => setRatingScore(s)} className={`text-3xl ${s <= ratingScore ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>
+                            ))}
+                        </div>
 
-                  <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-1">Duração Real (Horas)</label>
-                      <input type="number" value={ratingDuration} onChange={e => setRatingDuration(e.target.value)} className="w-full border rounded p-3" placeholder="Ex: 2.5" />
-                  </div>
-                  
-                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-slate-400 bg-slate-50">
-                       <Icons.Camera size={24} className="mb-2"/>
-                       <span className="text-xs">Foto do Resultado (Opcional)</span>
-                  </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Duração Real (Horas)</label>
+                            <input type="number" value={ratingDuration} onChange={e => setRatingDuration(e.target.value)} className="w-full border rounded p-3" placeholder="Ex: 2.5" />
+                        </div>
+                        
+                        <div 
+                            className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-slate-400 bg-slate-50 cursor-pointer hover:bg-slate-100 transition"
+                            onClick={() => setShowCameraPermission(true)}
+                        >
+                            <Icons.Camera size={24} className="mb-2"/>
+                            <span className="text-xs">Foto do Resultado (Opcional)</span>
+                        </div>
+                    </>
+                  )}
+
+                   {showCameraPermission && (
+                       <div className="animate-fade-in text-center">
+                           <div className="w-16 h-16 bg-orange-100 text-brand-orange rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Icons.Camera size={32} />
+                            </div>
+                           <h3 className="text-xl font-bold mb-2">Permitir Câmera?</h3>
+                           <p className="text-slate-500 text-sm mb-6">Precisamos acessar sua câmera para registrar a foto do serviço.</p>
+                           <div className="space-y-2">
+                               <Button fullWidth onClick={handleStartCamera}>Permitir Acesso</Button>
+                               <Button variant="outline" fullWidth onClick={() => setShowCameraPermission(false)}>Voltar</Button>
+                           </div>
+                       </div>
+                   )}
+
+                   {cameraActive && (
+                       <div className="relative bg-black rounded-xl overflow-hidden aspect-[3/4] mb-4">
+                           <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted></video>
+                           <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                               <button onClick={handleCapture} className="w-16 h-16 bg-white rounded-full border-4 border-slate-300 shadow-lg active:scale-95 transition-transform"></button>
+                           </div>
+                       </div>
+                   )}
+
+                   {capturedImage && (
+                       <div className="relative aspect-square rounded-xl overflow-hidden border border-slate-200">
+                            <img src={capturedImage} className="w-full h-full object-cover" />
+                            <button onClick={handleRetake} className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow text-slate-700 font-bold text-xs flex items-center gap-1">
+                                <Icons.RefreshCw size={14}/> Refazer
+                            </button>
+                       </div>
+                   )}
 
                   <div className="flex gap-2 pt-2">
                       <Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button>
-                      <Button fullWidth onClick={confirmRating} disabled={loading}>{loading ? '...' : 'Confirmar'}</Button>
+                      <Button fullWidth onClick={confirmRating} disabled={loading || cameraActive || showCameraPermission}>
+                        {loading ? '...' : 'Confirmar'}
+                      </Button>
                   </div>
               </div>
           </div>

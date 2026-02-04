@@ -2,14 +2,35 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
 import { Partner, Coupon } from '../types';
 import { Button } from '../components/Button';
-import { Store, MapPin, Ticket, QrCode, X } from 'lucide-react';
+import { Store, MapPin, Ticket, QrCode, X, Camera } from 'lucide-react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
+
+// Custom Camera Permission Modal
+const CameraPermissionModal: React.FC<{ onGrant: () => void, onClose: () => void }> = ({ onGrant, onClose }) => (
+    <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
+        <div className="bg-white rounded-3xl w-full max-w-sm p-8 text-center shadow-2xl relative">
+            <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24}/></button>
+            <div className="w-20 h-20 bg-orange-100 text-brand-orange rounded-full flex items-center justify-center mx-auto mb-6">
+                <Camera size={40} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 mb-2">Permitir Câmera?</h3>
+            <p className="text-slate-500 mb-8 leading-relaxed">
+                Para escanear o QR Code e resgatar seu desconto, precisamos de acesso à câmera do seu celular.
+            </p>
+            <Button fullWidth size="lg" onClick={onGrant} className="rounded-2xl shadow-xl shadow-brand-orange/20">
+                Permitir Acesso
+            </Button>
+            <p className="text-[10px] text-slate-400 mt-4">Nenhuma imagem será salva em nossos servidores.</p>
+        </div>
+    </div>
+);
 
 export const PartnersPage: React.FC = () => {
     const [partners, setPartners] = useState<Partner[]>([]);
     const [coupons, setCoupons] = useState<Coupon[]>([]);
     const [loading, setLoading] = useState(true);
     const [scannerOpen, setScannerOpen] = useState(false);
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
     const [scanResult, setScanResult] = useState<string | null>(null);
     const [scanStatus, setScanStatus] = useState<'idle'|'processing'|'success'|'error'>('idle');
 
@@ -48,6 +69,22 @@ export const PartnersPage: React.FC = () => {
         }
     };
 
+    const handleRequestCamera = async () => {
+        try {
+            await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } // Prefer rear camera
+            });
+            setShowPermissionModal(false);
+            setScannerOpen(true);
+            setScanResult(null);
+            setScanStatus('idle');
+        } catch (err) {
+            console.error(err);
+            alert("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
+            setShowPermissionModal(false);
+        }
+    };
+
     // QR Code Handling
     useEffect(() => {
         if (scannerOpen && !scanResult) {
@@ -55,7 +92,14 @@ export const PartnersPage: React.FC = () => {
             const timer = setTimeout(() => {
                 const scanner = new Html5QrcodeScanner(
                     "reader",
-                    { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+                    { 
+                        fps: 10, 
+                        qrbox: { width: 250, height: 250 }, 
+                        aspectRatio: 1.0,
+                        videoConstraints: {
+                            facingMode: { exact: "environment" }
+                        }
+                    },
                     false
                 );
                 
@@ -124,7 +168,7 @@ export const PartnersPage: React.FC = () => {
                 </div>
                 <div className="relative z-10 w-full md:w-auto">
                     <button 
-                        onClick={() => { setScannerOpen(true); setScanResult(null); setScanStatus('idle'); }}
+                        onClick={() => setShowPermissionModal(true)}
                         className="bg-white text-brand-orange px-6 py-3 rounded-xl font-bold shadow-md hover:bg-orange-50 transition-colors flex items-center justify-center gap-2 w-full md:w-auto"
                     >
                         <QrCode size={20} /> Escanear QR Code
@@ -135,6 +179,14 @@ export const PartnersPage: React.FC = () => {
                 <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
             </div>
 
+            {/* Permission Modal */}
+            {showPermissionModal && (
+                <CameraPermissionModal 
+                    onGrant={handleRequestCamera} 
+                    onClose={() => setShowPermissionModal(false)} 
+                />
+            )}
+
             {/* Scanner Modal */}
             {scannerOpen && (
                 <div className="fixed inset-0 bg-black/90 z-[60] flex flex-col items-center justify-center p-4">
@@ -143,7 +195,7 @@ export const PartnersPage: React.FC = () => {
                             <h3 className="font-bold text-slate-800">Escanear QR Code</h3>
                             <button onClick={() => setScannerOpen(false)} className="p-2 bg-slate-100 rounded-full"><X size={20}/></button>
                         </div>
-                        <div className="flex-1 bg-black relative flex items-center justify-center">
+                        <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
                              <div id="reader" className="w-full h-full"></div>
                         </div>
                         <div className="p-4 bg-slate-50 text-center">

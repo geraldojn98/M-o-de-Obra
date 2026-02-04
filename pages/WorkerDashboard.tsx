@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Job } from '../types';
 import { Button } from '../components/Button';
-import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X } from 'lucide-react';
+import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 
@@ -35,6 +35,12 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const [modalType, setModalType] = useState<'cancel' | 'finish' | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+
+  // Camera State
+  const [showCameraPermission, setShowCameraPermission] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -96,6 +102,54 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
     }
   };
 
+  // --- CAMERA FUNCTIONS ---
+
+  const handleStartCamera = async () => {
+      try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+              video: { facingMode: "environment" } 
+          });
+          setCameraActive(true);
+          setShowCameraPermission(false);
+          if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              videoRef.current.play();
+          }
+      } catch (err) {
+          alert("Erro ao acessar câmera. Verifique permissões.");
+          setShowCameraPermission(false);
+      }
+  };
+
+  const handleCapture = () => {
+      if (videoRef.current) {
+          const canvas = document.createElement("canvas");
+          canvas.width = videoRef.current.videoWidth;
+          canvas.height = videoRef.current.videoHeight;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+              ctx.drawImage(videoRef.current, 0, 0);
+              const dataUrl = canvas.toDataURL("image/jpeg");
+              setCapturedImage(dataUrl);
+              stopCamera();
+          }
+      }
+  };
+
+  const stopCamera = () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+          const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+          tracks.forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+      }
+      setCameraActive(false);
+  };
+
+  const handleRetake = () => {
+      setCapturedImage(null);
+      handleStartCamera();
+  };
+
   // --- ACTIONS ---
 
   const handleAcceptJob = async (jobId: string) => {
@@ -133,13 +187,18 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
 
   const confirmFinishJob = async () => {
       if (!selectedJobId) return;
+      if (!capturedImage) {
+          alert("Por favor, adicione uma foto do serviço realizado.");
+          return;
+      }
+
       setLoadingAction(true);
 
       const { error } = await supabase
         .from('jobs')
         .update({ 
             status: 'waiting_verification',
-            worker_evidence_url: 'https://via.placeholder.com/300?text=Evidencia+Worker'
+            worker_evidence_url: capturedImage // In production, upload to Storage and save URL
         })
         .eq('id', selectedJobId);
 
@@ -209,11 +268,15 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       e.stopPropagation();
       setSelectedJobId(jobId);
       setModalType('finish');
+      setCapturedImage(null);
+      stopCamera();
   };
 
   const closeModal = () => {
       setModalType(null);
       setSelectedJobId(null);
+      stopCamera();
+      setShowCameraPermission(false);
   };
 
   const openChat = (jobId: string, partnerName: string) => {
@@ -310,16 +373,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                         </div>
 
                         {job.status === 'in_progress' && (
-                             <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 mb-4">
-                                <p className="text-sm font-medium text-slate-700 mb-2">Para finalizar, você precisará anexar foto do serviço:</p>
-                                <div className="h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 bg-white">
-                                     <Camera size={20} className="mb-1"/>
-                                     <span className="text-xs">Foto do Serviço (Simulado)</span>
-                                </div>
-                             </div>
-                        )}
-
-                        {job.status === 'in_progress' && (
                             <div className="flex gap-2">
                                 <Button 
                                     type="button" 
@@ -399,19 +452,64 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
        )}
 
         {modalType === 'finish' && (
-           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
-               <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl text-center">
-                   <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600">
-                       <CheckCircle size={32} />
-                   </div>
-                   <h3 className="text-lg font-bold text-slate-800 mb-2">Finalizar Serviço?</h3>
-                   <p className="text-sm text-slate-600 mb-6">O cliente será notificado para verificar o serviço e liberar o pagamento/pontos.</p>
-                   <div className="flex gap-2">
-                       <Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button>
-                       <Button fullWidth onClick={confirmFinishJob} disabled={loadingAction}>
-                           {loadingAction ? '...' : 'Finalizar'}
-                       </Button>
-                   </div>
+           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
+               <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl text-center my-auto">
+                   
+                   {!capturedImage && !cameraActive && !showCameraPermission && (
+                       <>
+                        <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-green-600">
+                            <CheckCircle size={32} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Finalizar Serviço</h3>
+                        <p className="text-sm text-slate-600 mb-6">É obrigatório anexar uma foto do serviço realizado.</p>
+                        
+                        <Button variant="outline" fullWidth className="mb-4 border-dashed border-2 flex flex-col items-center justify-center py-6 gap-2" onClick={() => setShowCameraPermission(true)}>
+                            <Camera size={24} className="text-slate-400"/>
+                            <span className="text-sm text-slate-500">Tirar Foto do Serviço</span>
+                        </Button>
+                        <Button variant="outline" fullWidth onClick={closeModal}>Cancelar</Button>
+                       </>
+                   )}
+
+                   {showCameraPermission && (
+                       <div className="animate-fade-in">
+                           <div className="w-16 h-16 bg-orange-100 text-brand-orange rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Camera size={32} />
+                            </div>
+                           <h3 className="text-xl font-bold mb-2">Permitir Câmera?</h3>
+                           <p className="text-slate-500 text-sm mb-6">Precisamos acessar sua câmera para registrar a evidência do serviço.</p>
+                           <div className="space-y-2">
+                               <Button fullWidth onClick={handleStartCamera}>Permitir Acesso</Button>
+                               <Button variant="outline" fullWidth onClick={() => setShowCameraPermission(false)}>Voltar</Button>
+                           </div>
+                       </div>
+                   )}
+
+                   {cameraActive && (
+                       <div className="relative bg-black rounded-xl overflow-hidden aspect-[3/4] mb-4">
+                           <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted></video>
+                           <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                               <button onClick={handleCapture} className="w-16 h-16 bg-white rounded-full border-4 border-slate-300 shadow-lg active:scale-95 transition-transform"></button>
+                           </div>
+                       </div>
+                   )}
+
+                   {capturedImage && (
+                       <div className="space-y-4">
+                           <div className="relative aspect-square rounded-xl overflow-hidden border border-slate-200">
+                               <img src={capturedImage} className="w-full h-full object-cover" />
+                               <button onClick={handleRetake} className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow text-slate-700 font-bold text-xs flex items-center gap-1">
+                                   <RefreshCw size={14}/> Refazer
+                               </button>
+                           </div>
+                           <div className="flex gap-2">
+                               <Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button>
+                               <Button fullWidth onClick={confirmFinishJob} disabled={loadingAction}>
+                                   {loadingAction ? '...' : 'Enviar e Finalizar'}
+                               </Button>
+                           </div>
+                       </div>
+                   )}
                </div>
            </div>
        )}
