@@ -71,17 +71,28 @@ export const PartnersPage: React.FC = () => {
 
     const handleRequestCamera = async () => {
         try {
+            // Tenta câmera traseira primeiro
             await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } // Prefer rear camera
+                video: { facingMode: "environment" } 
             });
             setShowPermissionModal(false);
             setScannerOpen(true);
             setScanResult(null);
             setScanStatus('idle');
-        } catch (err) {
-            console.error(err);
-            alert("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
-            setShowPermissionModal(false);
+        } catch (err: any) {
+            console.warn("Falha ao abrir câmera traseira, tentando fallback...", err);
+            try {
+                // Fallback: Tenta qualquer câmera
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                setShowPermissionModal(false);
+                setScannerOpen(true);
+                setScanResult(null);
+                setScanStatus('idle');
+            } catch (err2) {
+                console.error(err2);
+                alert("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
+                setShowPermissionModal(false);
+            }
         }
     };
 
@@ -96,8 +107,9 @@ export const PartnersPage: React.FC = () => {
                         fps: 10, 
                         qrbox: { width: 250, height: 250 }, 
                         aspectRatio: 1.0,
+                        // MODIFICADO: Removido 'exact' para evitar OverconstrainedError
                         videoConstraints: {
-                            facingMode: { exact: "environment" }
+                            facingMode: "environment" 
                         }
                     },
                     false

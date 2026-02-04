@@ -106,18 +106,29 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
 
   const handleStartCamera = async () => {
       try {
+          // Attempt 1: Prefer rear camera
           const stream = await navigator.mediaDevices.getUserMedia({ 
               video: { facingMode: "environment" } 
           });
-          setCameraActive(true);
-          setShowCameraPermission(false);
-          if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-              videoRef.current.play();
-          }
+          setupStream(stream);
       } catch (err) {
-          alert("Erro ao acessar câmera. Verifique permissões.");
-          setShowCameraPermission(false);
+          // Attempt 2: Fallback to any camera
+          try {
+              const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+              setupStream(stream);
+          } catch (err2) {
+              alert("Erro ao acessar câmera. Verifique permissões.");
+              setShowCameraPermission(false);
+          }
+      }
+  };
+
+  const setupStream = (stream: MediaStream) => {
+      setCameraActive(true);
+      setShowCameraPermission(false);
+      if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
       }
   };
 
