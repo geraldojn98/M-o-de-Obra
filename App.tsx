@@ -31,18 +31,13 @@ const maskCpf = (value: string) => {
 // Validação Rigorosa de E-mail
 const validateEmail = (email: string): { valid: boolean; msg?: string } => {
   const cleanEmail = email.trim().toLowerCase();
-  
-  // 1. Regex Rígido: Exige caracteres + @ + caracteres + . + extensão (min 2 chars)
-  // Rejeita: "teste@teste" (sem ponto), "email@" (incompleto)
   const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   
   if (!regex.test(cleanEmail)) {
     return { valid: false, msg: "Por favor, digite um e-mail válido (ex: nome@gmail.com)" };
   }
 
-  // 2. Detector de Typos (Erros comuns)
   const domainPart = cleanEmail.split('@')[1];
-  
   if (domainPart.includes("gmil") || domainPart.includes("gmial")) return { valid: false, msg: "Você quis dizer @gmail.com?" };
   if (domainPart.includes("hotmal")) return { valid: false, msg: "Você quis dizer @hotmail.com?" };
   if (domainPart.includes("outlok")) return { valid: false, msg: "Você quis dizer @outlook.com?" };
@@ -118,12 +113,10 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             access_type: 'offline',
             prompt: 'consent',
         },
-        // O "as any" abaixo força o VS Code a aceitar o campo 'data'
-        // mesmo que ele ache que não existe.
         data: {
             role: activeTab,
-            full_name: '', // Força o envio para o metadata
-            avatar_url: '' // Força o envio para o metadata
+            full_name: '',
+            avatar_url: '' 
         },
       } as any 
     });
@@ -145,8 +138,6 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
         let { data: profile } = await supabase.from('profiles').select('*').eq('id', authData.user.id).maybeSingle();
         
         if (!profile) {
-            // Se não tem perfil (caso raro ou login google sem trigger), tenta criar/recuperar básico
-            // Nota: O trigger handle_new_user cuida disso geralmente
             const { data: userMeta } = await supabase.auth.getUser();
             const meta = userMeta.user?.user_metadata || {};
             const { data: partnerData } = await supabase.from('partners').select('id').eq('email', authData.user.email).maybeSingle();
@@ -292,9 +283,16 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     
+    // Função unificada para buscar perfil
     const fetchProfileAndSetUser = async (userId: string) => {
         try {
-            const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+            const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+            
+            if (error) {
+                console.error("Erro ao buscar perfil:", error);
+                throw error;
+            }
+
             if (profile && isMounted) {
                 const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
                 setCurrentUser({
@@ -302,26 +300,36 @@ export default function App() {
                     points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
                     rating: profile.rating, phone: profile.phone, cpf: profile.cpf
                 });
+            } else if (!profile && isMounted) {
+                // Usuário autenticado mas sem perfil (ex: erro no trigger)
+                // Força logout ou mostra tela de erro. Por enquanto, apenas para de carregar
+                console.warn("Perfil não encontrado para o usuário.");
             }
         } catch (error) {
-            console.error("Erro ao carregar perfil:", error);
+            console.error("Erro fatal no fetch profile:", error);
+        } finally {
+            // O PULO DO GATO: Sempre desliga o loading, com sucesso ou com erro.
+            if (isMounted) setIsLoading(false);
         }
     };
 
     const init = async () => {
-      // 1. Verificação Imediata da Sessão (Persistência)
+      // 1. Verifica sessão inicial
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (session?.user) {
+          // Se tem sessão, busca o perfil. O setIsLoading(false) está dentro do finally lá.
           await fetchProfileAndSetUser(session.user.id);
+      } else {
+          // Se não tem sessão, apenas para de carregar
+          if(isMounted) setIsLoading(false);
       }
-      if(isMounted) setIsLoading(false);
 
-      // 2. Listener para mudanças de estado (Login/Logout futuro)
+      // 2. Escuta mudanças (Login/Logout)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (event === 'SIGNED_IN' && session?.user && isMounted) {
               setIsLoading(true);
               await fetchProfileAndSetUser(session.user.id);
-              setIsLoading(false);
           } else if (event === 'SIGNED_OUT' && isMounted) {
               setCurrentUser(null);
               setIsLoading(false);
@@ -400,11 +408,11 @@ export default function App() {
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
         {currentUser.role === 'partner' ? <PartnerDashboard user={currentUser} /> :
          currentPage === 'partners' ? <PartnersPage /> : (
-            <>
-                {currentUser.role === 'admin' && <AdminDashboard />}
-                {currentUser.role === 'client' && <ClientDashboard user={currentUser} />}
-                {currentUser.role === 'worker' && <WorkerDashboard user={currentUser} />}
-            </>
+           <>
+               {currentUser.role === 'admin' && <AdminDashboard />}
+               {currentUser.role === 'client' && <ClientDashboard user={currentUser} />}
+               {currentUser.role === 'worker' && <WorkerDashboard user={currentUser} />}
+           </>
          )}
       </main>
 
