@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, ServiceCategory } from './types';
 import { Mascot } from './components/Mascot';
 import { Button } from './components/Button';
-import { LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, Store } from 'lucide-react';
+import { LogOut, Settings, User as UserIcon, Save, CircleHelp, X, Phone, Mail, Store } from 'lucide-react';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientDashboard } from './pages/ClientDashboard';
 import { WorkerDashboard } from './pages/WorkerDashboard';
@@ -291,27 +291,46 @@ export default function App() {
 
   useEffect(() => {
     let isMounted = true;
+    
+    const fetchProfileAndSetUser = async (userId: string) => {
+        try {
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+            if (profile && isMounted) {
+                const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
+                setCurrentUser({
+                    id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
+                    points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
+                    rating: profile.rating, phone: profile.phone, cpf: profile.cpf
+                });
+            }
+        } catch (error) {
+            console.error("Erro ao carregar perfil:", error);
+        }
+    };
+
     const init = async () => {
-      // Listener para auth state change (importante para redirecionamento do Google)
+      // 1. Verificação Imediata da Sessão (Persistência)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+          await fetchProfileAndSetUser(session.user.id);
+      }
+      if(isMounted) setIsLoading(false);
+
+      // 2. Listener para mudanças de estado (Login/Logout futuro)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (session?.user && isMounted) {
-              const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-              if (profile) {
-                  const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
-                  setCurrentUser({
-                      id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
-                      points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
-                      rating: profile.rating, phone: profile.phone, cpf: profile.cpf
-                  });
-              }
+          if (event === 'SIGNED_IN' && session?.user && isMounted) {
+              setIsLoading(true);
+              await fetchProfileAndSetUser(session.user.id);
               setIsLoading(false);
-          } else if (!session && isMounted) {
+          } else if (event === 'SIGNED_OUT' && isMounted) {
+              setCurrentUser(null);
               setIsLoading(false);
           }
       });
 
       return () => { subscription.unsubscribe(); };
     };
+
     init();
     return () => { isMounted = false; };
   }, []);
@@ -341,7 +360,7 @@ export default function App() {
             {currentUser.role !== 'partner' && (
                 <button onClick={() => setCurrentPage('partners')} className={`p-2.5 rounded-2xl transition-all ${currentPage === 'partners' ? 'bg-orange-100 text-brand-orange' : 'text-slate-400 hover:bg-slate-50'}`}><Store size={22} /></button>
             )}
-            <button onClick={() => setShowHelp(true)} className="p-2.5 text-slate-400 hover:bg-slate-50 rounded-2xl"><HelpCircle size={22} /></button>
+            <button onClick={() => setShowHelp(true)} className="p-2.5 text-slate-400 hover:bg-slate-50 rounded-2xl"><CircleHelp size={22} /></button>
             <NotificationBell userId={currentUser.id} />
 
             {currentUser.role !== 'admin' && currentUser.role !== 'partner' && (

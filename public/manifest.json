@@ -1,0 +1,21 @@
+{
+  "name": "App Mão de Obra",
+  "short_name": "Mão de Obra",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F97316",
+  "theme_color": "#F97316",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
