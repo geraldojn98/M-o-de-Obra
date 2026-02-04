@@ -28,6 +28,29 @@ const maskCpf = (value: string) => {
   return v;
 };
 
+// Validação Rigorosa de E-mail
+const validateEmail = (email: string): { valid: boolean; msg?: string } => {
+  const cleanEmail = email.trim().toLowerCase();
+  
+  // 1. Regex Rígido: Exige caracteres + @ + caracteres + . + extensão (min 2 chars)
+  // Rejeita: "teste@teste" (sem ponto), "email@" (incompleto)
+  const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  
+  if (!regex.test(cleanEmail)) {
+    return { valid: false, msg: "Por favor, digite um e-mail válido (ex: nome@gmail.com)" };
+  }
+
+  // 2. Detector de Typos (Erros comuns)
+  const domainPart = cleanEmail.split('@')[1];
+  
+  if (domainPart.includes("gmil") || domainPart.includes("gmial")) return { valid: false, msg: "Você quis dizer @gmail.com?" };
+  if (domainPart.includes("hotmal")) return { valid: false, msg: "Você quis dizer @hotmail.com?" };
+  if (domainPart.includes("outlok")) return { valid: false, msg: "Você quis dizer @outlook.com?" };
+  if (domainPart.includes("yaho") && !domainPart.includes("yahoo")) return { valid: false, msg: "Você quis dizer @yahoo.com?" };
+  
+  return { valid: true };
+};
+
 const inputClass = "w-full px-4 py-3 bg-slate-50 border-0 rounded-2xl text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-brand-orange outline-none transition-all shadow-sm";
 
 const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
@@ -84,6 +107,32 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             });
         }
     }, [isRegistering, activeTab]);
+
+    const handleGoogleLogin = async () => {
+        setLoading(true);
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+            redirectTo: window.location.origin,
+            queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+        },
+        // O "as any" abaixo força o VS Code a aceitar o campo 'data'
+        // mesmo que ele ache que não existe.
+        data: {
+            role: activeTab,
+            full_name: '', // Força o envio para o metadata
+            avatar_url: '' // Força o envio para o metadata
+        },
+      } as any 
+    });
+
+    if (error) {
+        alert("Erro ao conectar com Google: " + error.message);
+        setLoading(false);
+    }
+  };
   
     const handleLoginSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -96,6 +145,8 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
         let { data: profile } = await supabase.from('profiles').select('*').eq('id', authData.user.id).maybeSingle();
         
         if (!profile) {
+            // Se não tem perfil (caso raro ou login google sem trigger), tenta criar/recuperar básico
+            // Nota: O trigger handle_new_user cuida disso geralmente
             const { data: userMeta } = await supabase.auth.getUser();
             const meta = userMeta.user?.user_metadata || {};
             const { data: partnerData } = await supabase.from('partners').select('id').eq('email', authData.user.email).maybeSingle();
@@ -107,7 +158,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                 full_name: meta.full_name || 'Usuário Recuperado',
                 allowed_roles: isPartner ? ['partner'] : [meta.role || 'client'],
                 points: isPartner ? 0 : 50,
-                avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${authData.user.email}`,
+                avatar_url: meta.avatar_url || meta.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authData.user.email}`,
                 phone: meta.phone || '',
                 cpf: meta.cpf || '',
                 specialty: meta.specialty || ''
@@ -140,7 +191,15 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
     };
   
     const handleRegisterSubmit = async (e: React.FormEvent) => {
-      e.preventDefault(); setError(''); setSuccess(''); setLoading(true);
+      e.preventDefault(); setError(''); setSuccess('');
+      
+      const emailCheck = validateEmail(regEmail);
+      if (!emailCheck.valid) {
+          setError(emailCheck.msg || "E-mail inválido");
+          return;
+      }
+
+      setLoading(true);
       try {
         const metaData = { 
             full_name: regName, 
@@ -172,14 +231,32 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             </div>
             
             {!isRegistering ? (
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
+              <div className="space-y-4">
                 {success && <div className="text-green-600 bg-green-50 p-3 text-center rounded-xl font-bold text-sm flex items-center justify-center gap-2"><div className="w-2 h-2 bg-green-500 rounded-full"/>{success}</div>}
-                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} className={inputClass} placeholder="Email" required />
-                <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} placeholder="Senha" required />
-                {error && <p className="text-red-500 text-sm font-bold text-center">{error}</p>}
-                <Button type="submit" fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200">{loading ? 'Entrando...' : 'Entrar Agora'}</Button>
-                <div className="text-center pt-4"><button type="button" onClick={toggleMode} className="text-slate-400 font-bold hover:text-brand-orange text-sm">Não tem conta? Cadastre-se</button></div>
-              </form>
+                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                    <input type="email" value={email} onChange={e=>setEmail(e.target.value)} className={inputClass} placeholder="Email" required />
+                    <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} placeholder="Senha" required />
+                    {error && <p className="text-red-500 text-sm font-bold text-center">{error}</p>}
+                    <Button type="submit" fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200">{loading ? 'Entrando...' : 'Entrar Agora'}</Button>
+                </form>
+                
+                <div className="relative py-2">
+                    <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-100"></span></div>
+                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-400 font-bold">ou continue com</span></div>
+                </div>
+
+                <button 
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    disabled={loading}
+                    className="w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-3 px-4 rounded-2xl flex items-center justify-center gap-3 transition-all"
+                >
+                    <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="Google" />
+                    Entrar com Google
+                </button>
+
+                <div className="text-center pt-2"><button type="button" onClick={toggleMode} className="text-slate-400 font-bold hover:text-brand-orange text-sm">Não tem conta? Cadastre-se</button></div>
+              </div>
             ) : (
               <form onSubmit={handleRegisterSubmit} className="space-y-4">
                  <input value={regName} onChange={e=>setRegName(e.target.value)} className={inputClass} placeholder="Nome Completo" required />
@@ -215,19 +292,25 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user && isMounted) {
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-          if (profile) {
-              const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
-              setCurrentUser({
-                  id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
-                  points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
-                  rating: profile.rating, phone: profile.phone, cpf: profile.cpf
-              });
+      // Listener para auth state change (importante para redirecionamento do Google)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (session?.user && isMounted) {
+              const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+              if (profile) {
+                  const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
+                  setCurrentUser({
+                      id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
+                      points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
+                      rating: profile.rating, phone: profile.phone, cpf: profile.cpf
+                  });
+              }
+              setIsLoading(false);
+          } else if (!session && isMounted) {
+              setIsLoading(false);
           }
-      }
-      if(isMounted) setTimeout(() => setIsLoading(false), 3000);
+      });
+
+      return () => { subscription.unsubscribe(); };
     };
     init();
     return () => { isMounted = false; };
