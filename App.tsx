@@ -290,7 +290,7 @@ export default function App() {
             
             if (error) {
                 console.error("Erro ao buscar perfil:", error);
-                throw error;
+                // Não lançamos erro aqui para não quebrar o fluxo, apenas logamos
             }
 
             if (profile && isMounted) {
@@ -300,35 +300,29 @@ export default function App() {
                     points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
                     rating: profile.rating, phone: profile.phone, cpf: profile.cpf
                 });
-            } else if (!profile && isMounted) {
-                // Usuário autenticado mas sem perfil (ex: erro no trigger)
-                // Força logout ou mostra tela de erro. Por enquanto, apenas para de carregar
-                console.warn("Perfil não encontrado para o usuário.");
             }
         } catch (error) {
             console.error("Erro fatal no fetch profile:", error);
         } finally {
-            // O PULO DO GATO: Sempre desliga o loading, com sucesso ou com erro.
             if (isMounted) setIsLoading(false);
         }
     };
 
     const init = async () => {
-      // 1. Verifica sessão inicial
+      // 1. Verifica sessão inicial (Aqui SIM mostramos loading)
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
-          // Se tem sessão, busca o perfil. O setIsLoading(false) está dentro do finally lá.
           await fetchProfileAndSetUser(session.user.id);
       } else {
-          // Se não tem sessão, apenas para de carregar
           if(isMounted) setIsLoading(false);
       }
 
-      // 2. Escuta mudanças (Login/Logout)
+      // 2. Escuta mudanças (Aqui NÃO mostramos loading se for apenas atualização)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (event === 'SIGNED_IN' && session?.user && isMounted) {
-              setIsLoading(true);
+              // AQUI ESTAVA O ERRO: Removemos o setIsLoading(true)
+              // O app vai atualizar os dados em silêncio, sem travar a tela.
               await fetchProfileAndSetUser(session.user.id);
           } else if (event === 'SIGNED_OUT' && isMounted) {
               setCurrentUser(null);
