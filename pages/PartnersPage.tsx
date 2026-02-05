@@ -275,12 +275,19 @@ export const PartnersPage: React.FC = () => {
                                 ) : (
                                     <div className="space-y-2">
                                         {partnerCoupons.map(coupon => (
-                                            <div key={coupon.id} className="bg-white border border-slate-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
-                                                <div>
-                                                    <p className="font-bold text-sm text-slate-800">{coupon.title}</p>
-                                                    <p className="text-xs text-slate-500">{coupon.description}</p>
+                                            <div key={coupon.id} className="bg-white border border-slate-200 rounded-lg p-3 flex justify-between items-center shadow-sm gap-3">
+                                                
+                                                <img 
+                                                    src={partner.logoUrl || 'https://via.placeholder.com/40'} 
+                                                    className="w-12 h-12 rounded-lg object-contain border border-slate-100 bg-white shrink-0" 
+                                                    alt={partner.name}
+                                                />
+
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-bold text-sm text-slate-800 leading-tight">{coupon.title}</p>
+                                                    <p className="text-xs text-slate-500 line-clamp-1">{coupon.description}</p>
                                                 </div>
-                                                <div className="flex flex-col items-end gap-1">
+                                                <div className="flex flex-col items-end gap-1 shrink-0">
                                                     <div className='text-right'>
                                                         <span className="block font-bold text-brand-orange">{coupon.cost} pts</span>
                                                         <span className="text-[10px] text-slate-400">{coupon.availableQuantity} rest.</span>
