@@ -89,7 +89,6 @@ export const PartnersPage: React.FC = () => {
         setScanResult(null);
         setScanStatus('idle');
 
-        // Small delay to ensure DOM element exists
         setTimeout(async () => {
             try {
                 if(scannerRef.current) {
@@ -101,21 +100,18 @@ export const PartnersPage: React.FC = () => {
 
                 const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
                 
-                // Prefer back camera, handle constraints carefully for mobile
                 await html5QrCode.start(
                     { facingMode: "environment" }, 
                     config,
                     (decodedText) => {
                         handleScanSuccess(decodedText);
                     },
-                    (errorMessage) => {
-                        // parse error, ignore
-                    }
+                    (errorMessage) => { }
                 );
             } catch (err) {
                 console.error("Erro ao iniciar câmera", err);
                 setScannerOpen(false);
-                alert("Não foi possível iniciar a câmera. Verifique se você deu permissão e se nenhum outro app está usando a câmera.");
+                alert("Não foi possível iniciar a câmera.");
             }
         }, 100);
     };
@@ -135,7 +131,7 @@ export const PartnersPage: React.FC = () => {
     };
 
     const handleScanSuccess = async (data: string) => {
-        // Stop camera immediately upon success
+        // Stop camera immediately
         await stopScanner();
         
         setScanResult(data);
@@ -145,6 +141,7 @@ export const PartnersPage: React.FC = () => {
             const couponId = data;
             const { data: session } = await supabase.auth.getSession();
             const userId = session.session?.user.id;
+            const userName = session.session?.user.user_metadata?.full_name || 'Usuário';
 
             if(!userId) throw new Error("Usuário não identificado");
 
@@ -157,7 +154,30 @@ export const PartnersPage: React.FC = () => {
 
             if(res.success) {
                 setScanStatus('success');
-                fetchData(); // Refresh points/coupons
+                
+                // NOTIFY THE PARTNER
+                // 1. Get Coupon Details to find Partner
+                const coupon = coupons.find(c => c.id === couponId);
+                if (coupon) {
+                    // 2. Find Partner's Profile ID via Partner Table (by email/relation if setup)
+                    // For now, assume partners table has email and we find profile by email.
+                    // Ideally, partners table should have 'user_id' linked to auth/profiles.
+                    const { data: partnerData } = await supabase.from('partners').select('email').eq('id', coupon.partnerId).single();
+                    if(partnerData && partnerData.email) {
+                         const { data: profileData } = await supabase.from('profiles').select('id').eq('email', partnerData.email).single();
+                         if(profileData) {
+                             await supabase.from('notifications').insert({
+                                 user_id: profileData.id,
+                                 title: 'Cupom Resgatado!',
+                                 message: `${userName} acabou de resgatar o cupom: ${coupon.title}`,
+                                 type: 'promo',
+                                 action_link: JSON.stringify({screen: 'history'})
+                             });
+                         }
+                    }
+                }
+
+                fetchData(); 
             } else {
                 setScanStatus('error');
                 alert(res.message);
@@ -190,8 +210,6 @@ export const PartnersPage: React.FC = () => {
                         <QrCode size={20} /> Escanear QR Code
                     </button>
                 </div>
-                
-                {/* Decorative circles */}
                 <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
             </div>
 

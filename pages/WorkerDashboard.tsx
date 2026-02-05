@@ -27,7 +27,6 @@ const SpecialtySelectionModal: React.FC<{ userId: string, onSave: () => void }> 
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        // Fetch all categories including 'Outros'
         supabase.from('service_categories').select('*').order('name').then(({data}) => {
             if(data) setCategories(data);
         });
@@ -44,7 +43,6 @@ const SpecialtySelectionModal: React.FC<{ userId: string, onSave: () => void }> 
 
         setLoading(true);
         
-        // Prepare string
         const finalSelection = selected.filter(s => s !== 'Outros');
         if (selected.includes('Outros')) {
             finalSelection.push(`Sugestão: ${otherText.trim()}`);
@@ -136,8 +134,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    // Check if user has specialties
-    // SE O CAMPO ESTIVER VAZIO, O MODAL APARECE. Isso cobre o caso de novos cadastros.
     if (!user.specialty || user.specialty.trim() === '') {
         setShowSpecialtyModal(true);
     }
@@ -151,7 +147,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       }
   }, [toast]);
 
-  // Race Condition Fix: Effect to attach stream when video element is ready
   useEffect(() => {
     if (cameraActive && mediaStream && videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -162,8 +157,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const showToast = (msg: string, type: 'success' | 'error') => setToast({ msg, type });
 
   const fetchData = async () => {
-    // 1. Available Open Jobs
-    // IMPORTANT: 'client:client_id(full_name)' requires a Foreign Key between jobs.client_id and profiles.id in Supabase
     const { data: openData } = await supabase
         .from('jobs')
         .select('*, client:client_id(full_name)')
@@ -171,25 +164,17 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
     
     if (openData) {
         const filtered = openData.filter((j: any) => {
-            // Already assigned to me (Direct Hire) OR Not assigned to anyone
             const isAssignedToMe = j.worker_id === user.id;
             const isUnassigned = j.worker_id === null;
             
             if (isAssignedToMe) return true;
             if (!isUnassigned) return false;
 
-            // Category Matching Logic
-            // Job Category Name can be: empty (all), "Pedreiro", or "Pedreiro, Pintor", or "Sugestão: ..."
-            // User Specialty can be: "Pedreiro, Eletricista"
-            
             const jobCats = j.category_name ? j.category_name.split(',').map((s:string) => s.trim()) : [];
             const userSpecs = user.specialty ? user.specialty.split(',').map((s: string) => s.trim()) : [];
 
-            // If job has no category, it's open to all
             if (jobCats.length === 0 || (jobCats.length === 1 && jobCats[0] === '')) return true;
 
-            // Check if ANY of the job categories match ANY of the user specialties
-            // Note: simple includes match works for "Sugestão: X" if user has "Sugestão: X"
             const hasMatch = jobCats.some((cat: string) => userSpecs.some((spec: string) => spec.includes(cat) || cat.includes(spec)));
             return hasMatch;
         });
@@ -208,7 +193,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
         })));
     }
 
-    // 2. My Jobs (Active & History)
     const { data: myData } = await supabase
         .from('jobs')
         .select('*, client:client_id(full_name)')
@@ -234,10 +218,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   };
 
   // --- CAMERA FUNCTIONS ---
-
   const handleStartCamera = async () => {
       try {
-          // Attempt 1: Prefer rear camera
           const stream = await navigator.mediaDevices.getUserMedia({ 
               video: { facingMode: "environment" } 
           });
@@ -245,7 +227,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           setCameraActive(true);
           setShowCameraPermission(false);
       } catch (err) {
-          // Attempt 2: Fallback to any camera
           try {
               const stream = await navigator.mediaDevices.getUserMedia({ video: true });
               setMediaStream(stream);
@@ -303,40 +284,33 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
         .eq('id', jobId);
       
       if (error) {
-          console.error("Erro ao aceitar:", error);
-          // Show alert to user so they know it's a permission issue
-          alert("Não foi possível aceitar: " + error.message + ". Peça ao administrador para rodar o Script SQL de correção.");
+          alert("Não foi possível aceitar: " + error.message);
           showToast(error.message, 'error');
           setLoadingAction(false);
       } else {
-          // Notify Client
           if (jobToAccept) {
              await supabase.from('notifications').insert({
                  user_id: jobToAccept.clientId,
                  title: 'Profissional a caminho!',
                  message: `${user.name} aceitou seu pedido: ${jobToAccept.title}`,
-                 type: 'job_update'
+                 type: 'job_update',
+                 action_link: JSON.stringify({screen: 'jobs'})
              });
 
-             // OPTIMISTIC UPDATE: Move job locally to avoid refetch delay
              const newJobState = {
                  ...jobToAccept,
                  status: 'in_progress' as const,
                  workerId: user.id
              };
              
-             // Remove from available and add to myJobs
              setAvailableJobs(prev => prev.filter(j => j.id !== jobId));
              setMyJobs(prev => [newJobState, ...prev]);
              setHasActiveJob(true);
           }
 
           showToast('Serviço aceito com sucesso!', 'success');
-          setActiveTab('my_jobs'); // This switches view to 'My Jobs'
-          
-          // CRITICAL: Fetch data from server to ensure synchronization in case optimistic update missed something
+          setActiveTab('my_jobs');
           await fetchData();
-          
           setLoadingAction(false);
       }
   };
@@ -354,7 +328,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
         .from('jobs')
         .update({ 
             status: 'waiting_verification',
-            worker_evidence_url: capturedImage // In production, upload to Storage and save URL
+            worker_evidence_url: capturedImage // Evidence is saved here
         })
         .eq('id', selectedJobId);
 
@@ -363,11 +337,13 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       } else {
           const job = myJobs.find(j => j.id === selectedJobId);
           if (job) {
+             // Notification to Client
              await supabase.from('notifications').insert({
                  user_id: job.clientId,
-                 title: 'Serviço Finalizado',
-                 message: `${user.name} marcou o serviço como concluído. Por favor, verifique e avalie.`,
-                 type: 'job_update'
+                 title: 'Serviço Finalizado - Ação Necessária',
+                 message: `${user.name} finalizou o serviço. Confira a foto do resultado e confirme para liberar o pagamento.`,
+                 type: 'job_update',
+                 action_link: JSON.stringify({screen: 'jobs'})
              });
           }
           showToast('Serviço enviado para verificação!', 'success');
@@ -402,7 +378,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                  user_id: job.clientId,
                  title: 'Serviço Cancelado',
                  message: `O profissional cancelou o serviço: ${cancelReason}`,
-                 type: 'info'
+                 type: 'info',
+                 action_link: JSON.stringify({screen: 'history'})
              });
           }
           showToast('Serviço cancelado.', 'success');
@@ -450,10 +427,11 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
        {showSpecialtyModal && (
            <SpecialtySelectionModal 
                 userId={user.id} 
-                onSave={() => { setShowSpecialtyModal(false); window.location.reload(); }} // Reload to refresh profile context in App
+                onSave={() => { setShowSpecialtyModal(false); window.location.reload(); }}
            />
        )}
 
+       {/* ... (Tabs and Jobs List remain identical, truncated for brevity) ... */}
        <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
          <button 
            className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`}
@@ -561,7 +539,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                         
                         {job.status === 'waiting_verification' && (
                             <div className="p-3 bg-purple-50 text-purple-700 rounded-lg text-sm text-center">
-                                Aguardando cliente confirmar e avaliar.
+                                Aguardando cliente confirmar a foto e avaliar.
                             </div>
                         )}
                     </div>
@@ -624,7 +602,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                             <CheckCircle size={32} />
                         </div>
                         <h3 className="text-lg font-bold text-slate-800 mb-2">Finalizar Serviço</h3>
-                        <p className="text-sm text-slate-600 mb-6">É obrigatório anexar uma foto do serviço realizado.</p>
+                        <p className="text-sm text-slate-600 mb-6">É obrigatório anexar uma foto do serviço realizado para que o cliente aprove.</p>
                         
                         <Button variant="outline" fullWidth className="mb-4 border-dashed border-2 flex flex-col items-center justify-center py-6 gap-2" onClick={() => setShowCameraPermission(true)}>
                             <Camera size={24} className="text-slate-400"/>

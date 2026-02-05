@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Coupon } from '../types';
 import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
-import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft, QrCode } from 'lucide-react';
 
 // QR Code Generator
 const QRCodeDisplay: React.FC<{ value: string }> = ({ value }) => {
@@ -24,8 +24,8 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
     const [newQty, setNewQty] = useState('');
 
     // Security & Modals
-    const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null); // For POS
-    const [showPinModal, setShowPinModal] = useState<'set' | 'auth' | null>(null); // 'set' = first time setup, 'auth' = creating coupon
+    const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null); // For POS Modal
+    const [showPinModal, setShowPinModal] = useState<'set' | 'auth' | null>(null);
     const [pinInput, setPinInput] = useState('');
     
     // Realtime Redemption State
@@ -53,7 +53,10 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
     useEffect(() => {
         let channel: any;
 
-        if (selectedCoupon && !redemptionSuccess) {
+        if (selectedCoupon) {
+            // Reset success when opening a new coupon
+            setRedemptionSuccess(false);
+
             channel = supabase
                 .channel(`redemption_watch_${selectedCoupon.id}`)
                 .on('postgres_changes', {
@@ -71,13 +74,6 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
         return () => {
             if (channel) supabase.removeChannel(channel);
         };
-    }, [selectedCoupon, redemptionSuccess]);
-
-    // Reset success state when closing POS or changing coupon
-    useEffect(() => {
-        if (!selectedCoupon) {
-            setRedemptionSuccess(false);
-        }
     }, [selectedCoupon]);
 
     const fetchCoupons = async (pid: string) => {
@@ -96,10 +92,11 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
 
     const fetchHistory = async () => {
         if(!partnerId) return;
-        // Join profiles to get user name
+        // Fetch profiles to get user name AND roles
+        // We use explicit join if foreign key exists, otherwise we assume 'user' relation
         const { data } = await supabase
             .from('coupon_redemptions')
-            .select('*, user:user_id(full_name), coupon:coupon_id(title)')
+            .select('*, user:user_id(full_name, allowed_roles), coupon:coupon_id(title)')
             .order('redeemed_at', { ascending: false });
         
         if (data) setRedemptions(data);
@@ -127,7 +124,6 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
                 alert("Erro ao salvar senha");
             }
         } else if (showPinModal === 'auth') {
-             // Verify PIN against DB
              const { data } = await supabase.from('partners').select('coupon_pin').eq('id', partnerId).single();
              if (data && data.coupon_pin === pinInput) {
                  setShowPinModal(null);
@@ -170,6 +166,14 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
         setRedemptionSuccess(false);
         setSelectedCoupon(null);
         if(partnerId) fetchCoupons(partnerId); // Refresh quantities
+    };
+
+    const translateRole = (roles: string[] | null) => {
+        if(!roles || roles.length === 0) return 'Cliente';
+        if(roles.includes('admin')) return 'Admin';
+        if(roles.includes('partner')) return 'Parceiro';
+        if(roles.includes('worker')) return 'Profissional';
+        return 'Cliente';
     };
 
     if (!partnerId) return <div className="p-10 text-center">Carregando dados do parceiro...</div>;
@@ -237,60 +241,64 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
 
             {activeTab === 'pos' && (
                 <div className="text-center animate-fade-in w-full">
-                    {!selectedCoupon ? (
-                        <div className="max-w-md mx-auto">
-                            <h3 className="text-xl font-bold mb-4">O que o cliente vai resgatar?</h3>
-                            <p className="text-slate-500 mb-6">Selecione o cupom para gerar o QR Code que o cliente deve escanear.</p>
-                            <div className="space-y-3">
-                                {coupons.filter(c => c.active && c.availableQuantity > 0).map(c => (
-                                    <button 
-                                        key={c.id} 
-                                        onClick={() => setSelectedCoupon(c)}
-                                        className="w-full bg-white p-4 rounded-xl border border-slate-200 hover:border-brand-orange hover:shadow-md transition-all text-left group"
-                                    >
-                                        <span className="font-bold text-lg group-hover:text-brand-orange">{c.title}</span>
-                                        <div className="flex justify-between text-sm text-slate-500 mt-1">
-                                            <span>{c.cost} Pontos</span>
-                                            <span>{c.availableQuantity} un. disponíveis</span>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
+                    <div className="max-w-md mx-auto">
+                        <h3 className="text-xl font-bold mb-4">Selecione para Gerar QR Code</h3>
+                        <p className="text-slate-500 mb-6">Ao clicar, um QR Code será gerado. Assim que o cliente escanear, você será notificado.</p>
+                        <div className="space-y-3">
+                            {coupons.filter(c => c.active && c.availableQuantity > 0).map(c => (
+                                <button 
+                                    key={c.id} 
+                                    onClick={() => setSelectedCoupon(c)}
+                                    className="w-full bg-white p-4 rounded-xl border border-slate-200 hover:border-brand-orange hover:shadow-md transition-all text-left group flex justify-between items-center"
+                                >
+                                    <div>
+                                        <span className="font-bold text-lg group-hover:text-brand-orange block">{c.title}</span>
+                                        <span className="text-xs text-slate-500">{c.cost} Pontos • {c.availableQuantity} un.</span>
+                                    </div>
+                                    <QrCode className="text-slate-300 group-hover:text-brand-orange" />
+                                </button>
+                            ))}
                         </div>
-                    ) : (
-                        <div className="w-full flex justify-center">
-                            {redemptionSuccess ? (
-                                <div className="bg-white p-8 rounded-3xl shadow-2xl border-2 border-green-100 animate-bounce-slow max-w-sm w-full flex flex-col items-center">
-                                    <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
-                                        <CheckCircle size={48} />
-                                    </div>
-                                    <h3 className="text-2xl font-black text-slate-800 mb-2">Resgatado!</h3>
-                                    <p className="text-slate-500 font-medium mb-8">O cupom foi validado com sucesso.</p>
-                                    <Button fullWidth size="lg" onClick={handleCloseSuccess}>
-                                        Concluir e Voltar
-                                    </Button>
-                                </div>
-                            ) : (
-                                <div className="bg-brand-blue/5 p-8 rounded-2xl inline-block border-2 border-brand-blue/20 w-full max-w-sm">
-                                    <h3 className="text-2xl font-bold text-brand-blue mb-2">{selectedCoupon.title}</h3>
-                                    <p className="text-slate-600 mb-6">Peça para o cliente escanear este código no App.</p>
-                                    
-                                    <div className="flex justify-center mb-6 bg-white p-2 rounded-xl">
-                                        <QRCodeDisplay value={selectedCoupon.id} />
-                                    </div>
+                    </div>
+                </div>
+            )}
 
-                                    <div className="flex items-center justify-center gap-2 mb-6 text-sm font-bold text-slate-500 bg-white/50 p-2 rounded-lg">
-                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                                        Aguardando leitura...
-                                    </div>
-                                    
-                                    <Button variant="outline" onClick={() => setSelectedCoupon(null)} className="flex items-center gap-2 mx-auto">
-                                        <ArrowLeft size={18}/> Cancelar
-                                    </Button>
+            {/* POS MODAL (QR CODE) */}
+            {selectedCoupon && (
+                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl w-full max-w-sm p-6 relative shadow-2xl animate-fade-in">
+                        
+                        {!redemptionSuccess ? (
+                            <div className="text-center">
+                                <h3 className="text-2xl font-bold text-brand-blue mb-2">{selectedCoupon.title}</h3>
+                                <p className="text-slate-600 mb-6 text-sm">Peça para o cliente escanear este código.</p>
+                                
+                                <div className="flex justify-center mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    <QRCodeDisplay value={selectedCoupon.id} />
                                 </div>
-                            )}
-                        </div>
-                    )}
+
+                                <div className="flex items-center justify-center gap-2 mb-6 text-xs font-bold text-slate-500 bg-green-50 p-2 rounded-lg text-green-700">
+                                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                    Aguardando leitura em tempo real...
+                                </div>
+                                
+                                <Button variant="outline" fullWidth onClick={() => setSelectedCoupon(null)}>
+                                    Cancelar
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="text-center animate-bounce-slow">
+                                <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                    <CheckCircle size={48} />
+                                </div>
+                                <h3 className="text-2xl font-black text-slate-800 mb-2">Resgatado!</h3>
+                                <p className="text-slate-500 font-medium mb-8">Cupom validado com sucesso.</p>
+                                <Button fullWidth size="lg" onClick={handleCloseSuccess}>
+                                    Concluir
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -304,15 +312,18 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
                              {redemptions.map(r => (
                                  <div key={r.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                                      <div>
-                                         <div className="flex items-center gap-2 mb-1">
+                                         <div className="flex flex-col mb-1">
                                             <span className="font-bold text-slate-800">{r.user?.full_name || 'Usuário Desconhecido'}</span>
-                                            <span className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-500">{new Date(r.redeemed_at).toLocaleDateString()}</span>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-50 w-fit px-1 rounded mt-0.5">
+                                                {translateRole(r.user?.allowed_roles)}
+                                            </span>
                                          </div>
-                                         <p className="text-sm text-brand-orange font-medium flex items-center gap-1"><Ticket size={14}/> {r.coupon?.title}</p>
+                                         <p className="text-sm text-brand-orange font-medium flex items-center gap-1 mt-1"><Ticket size={14}/> {r.coupon?.title}</p>
                                      </div>
                                      <div className="text-right">
                                          <span className="block font-black text-slate-700">-{r.cost_paid} pts</span>
-                                         <span className="text-[10px] text-slate-400">{new Date(r.redeemed_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                         <span className="text-[10px] text-slate-400">{new Date(r.redeemed_at).toLocaleDateString()}</span>
+                                         <span className="text-[10px] text-slate-400 block">{new Date(r.redeemed_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                                      </div>
                                  </div>
                              ))}

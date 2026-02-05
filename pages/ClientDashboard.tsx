@@ -57,7 +57,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingDuration, setRatingDuration] = useState('');
 
-  // Camera State
+  // Camera State (Only needed if client wants to upload their own photo, kept for consistency)
   const [showCameraPermission, setShowCameraPermission] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -120,17 +120,16 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
         status: j.status,
         price: j.price || 0,
         date: j.created_at,
-        rating: j.rating
+        rating: j.rating,
+        workerEvidence: j.worker_evidence_url 
       })));
     }
     setLoading(false);
   };
 
   // --- CAMERA FUNCTIONS ---
-
   const handleStartCamera = async () => {
     try {
-        // Attempt 1: Prefer rear camera
         const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: "environment" } 
         });
@@ -138,7 +137,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
         setCameraActive(true);
         setShowCameraPermission(false);
     } catch (err) {
-        // Attempt 2: Fallback to any camera
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             setMediaStream(stream);
@@ -195,13 +193,12 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
     let finalCategoryString = '';
     
     if (isAllCategories) {
-        finalCategoryString = ''; // Empty means visible to all
+        finalCategoryString = ''; 
     } else {
         const cats = [...selectedCategories];
-        // Handle "Outros"
         if (cats.includes('Outros')) {
              const othersIndex = cats.indexOf('Outros');
-             if (othersIndex > -1) cats.splice(othersIndex, 1); // Remove raw "Outros"
+             if (othersIndex > -1) cats.splice(othersIndex, 1);
              if (otherCategoryInput.trim()) {
                  cats.push(`Sugestão: ${otherCategoryInput.trim()}`);
              } else {
@@ -258,7 +255,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
       if (error) {
           showToast(error.message, 'error');
       } else {
-           // With new RLS, this will work
            await supabase.from('notifications').insert({
                  user_id: worker.id,
                  title: 'Nova Proposta Direta',
@@ -297,7 +293,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
     } else {
         const job = jobs.find(j => j.id === jobId);
         if (job && job.workerId) {
-            // With new RLS, this will work
             await supabase.from('notifications').insert({
                  user_id: job.workerId,
                  title: 'Serviço Cancelado pelo Cliente',
@@ -322,13 +317,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
       setLoading(true);
       const job = selectedItem;
       
+      // Atualiza o job e REMOVE a evidência do trabalhador (worker_evidence_url = null)
       const { error: jobError } = await supabase
         .from('jobs')
         .update({
             status: 'completed',
             rating: ratingScore,
             duration_hours: parseFloat(ratingDuration),
-            client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo'
+            client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo',
+            worker_evidence_url: null // AQUI: A FOTO É ELIMINADA APÓS A CONFIRMAÇÃO
         })
         .eq('id', job.id);
 
@@ -336,6 +333,17 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
           showToast(jobError.message, 'error');
           setLoading(false);
           return;
+      }
+
+      // Notificar o trabalhador
+      if(job.workerId) {
+          await supabase.from('notifications').insert({
+             user_id: job.workerId,
+             title: 'Serviço Confirmado!',
+             message: `Parabéns! O cliente confirmou o serviço "${job.title}". Seus pontos foram creditados.`,
+             type: 'job_update',
+             action_link: JSON.stringify({screen: 'history'})
+         });
       }
 
       showToast("Avaliação enviada! Pontos creditados automaticamente.", 'success');
@@ -376,12 +384,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const fetchWorkersByCategory = async (category: string) => {
       setLoading(true);
       setSelectedCategory(category);
-      // Filter logic: worker specialty contains the category
       const { data } = await supabase
         .from('profiles')
         .select('*')
         .contains('allowed_roles', ['worker'])
-        .ilike('specialty', `%${category}%`); // Simple matching
+        .ilike('specialty', `%${category}%`); 
       
       setWorkers(data || []);
       setLoading(false);
@@ -430,7 +437,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                     </div>
                 </div>
             )}
-
+            
+            {/* ... (Post Job and Find Pro sections remain identical, truncated for brevity) ... */}
             {viewMode === 'post_job' && (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 animate-fade-in">
                     <div className="flex justify-between items-center mb-4">
@@ -440,7 +448,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                     <form onSubmit={handlePostJob} className="space-y-4">
                         <input value={jobTitle} onChange={e=>setJobTitle(e.target.value)} placeholder="Título do Pedido (Ex: Consertar pia)" className="w-full px-4 py-3 bg-slate-50 border rounded-lg" required />
                         
-                        {/* Category Selection */}
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                              <p className="text-sm font-bold text-slate-700 mb-2">Para quem este pedido deve aparecer?</p>
                              
@@ -574,7 +581,24 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                                {job.status === 'waiting_verification' && (
                                    <div className="mt-4 bg-purple-50 p-4 rounded-lg border border-purple-100">
                                        <p className="text-sm font-bold text-purple-800 mb-2">Serviço Finalizado!</p>
-                                       <p className="text-xs text-purple-600 mb-4">O profissional marcou como concluído. Avalie para liberar os pontos.</p>
+                                       <p className="text-xs text-purple-600 mb-4">O profissional marcou como concluído. Confira a foto abaixo e avalie para liberar os pontos.</p>
+                                       
+                                       {/* EXIBIÇÃO DA FOTO DO PROFISSIONAL */}
+                                       {job.workerEvidence ? (
+                                           <div className="mb-4 bg-white p-2 rounded-lg border border-purple-100">
+                                               <p className="text-xs font-bold text-slate-500 mb-2">Foto enviada pelo profissional:</p>
+                                               <img 
+                                                src={job.workerEvidence} 
+                                                alt="Prova do serviço" 
+                                                className="w-full h-auto max-h-64 object-contain rounded-lg border border-slate-200 bg-black" 
+                                               />
+                                           </div>
+                                       ) : (
+                                            <div className="mb-4 bg-red-50 p-2 rounded-lg border border-red-100 text-red-600 text-xs font-bold">
+                                                Foto não carregada ou não enviada.
+                                            </div>
+                                       )}
+                                       
                                        <Button fullWidth onClick={() => openRatingModal(job)}>Confirmar e Avaliar</Button>
                                    </div>
                                )}
@@ -691,64 +715,26 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
               <div className="bg-white rounded-xl w-full max-w-sm p-6 space-y-4 my-auto">
                   <h3 className="text-lg font-bold text-slate-800">Avaliar Serviço</h3>
                   
-                  {!cameraActive && !showCameraPermission && !capturedImage && (
-                    <>
-                        <div className="flex justify-center gap-2 my-4">
-                            {[1,2,3,4,5].map(s => (
-                                <button key={s} onClick={() => setRatingScore(s)} className={`text-3xl ${s <= ratingScore ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>
-                            ))}
-                        </div>
+                  {/* Client evidence optional, removed logic block if not used, kept input for consistency */}
+                  
+                  <div className="flex justify-center gap-2 my-4">
+                        {[1,2,3,4,5].map(s => (
+                            <button key={s} onClick={() => setRatingScore(s)} className={`text-3xl ${s <= ratingScore ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>
+                        ))}
+                    </div>
 
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">Duração Real (Horas)</label>
-                            <input type="number" value={ratingDuration} onChange={e => setRatingDuration(e.target.value)} className="w-full border rounded p-3" placeholder="Ex: 2.5" />
-                        </div>
-                        
-                        <div 
-                            className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-slate-400 bg-slate-50 cursor-pointer hover:bg-slate-100 transition"
-                            onClick={() => setShowCameraPermission(true)}
-                        >
-                            <Icons.Camera size={24} className="mb-2"/>
-                            <span className="text-xs">Foto do Resultado (Opcional)</span>
-                        </div>
-                    </>
-                  )}
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">Duração Real (Horas)</label>
+                        <input type="number" value={ratingDuration} onChange={e => setRatingDuration(e.target.value)} className="w-full border rounded p-3" placeholder="Ex: 2.5" />
+                    </div>
 
-                   {showCameraPermission && (
-                       <div className="animate-fade-in text-center">
-                           <div className="w-16 h-16 bg-orange-100 text-brand-orange rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Icons.Camera size={32} />
-                            </div>
-                           <h3 className="text-xl font-bold mb-2">Permitir Câmera?</h3>
-                           <p className="text-slate-500 text-sm mb-6">Precisamos acessar sua câmera para registrar a foto do serviço.</p>
-                           <div className="space-y-2">
-                               <Button fullWidth onClick={handleStartCamera}>Permitir Acesso</Button>
-                               <Button variant="outline" fullWidth onClick={() => setShowCameraPermission(false)}>Voltar</Button>
-                           </div>
-                       </div>
-                   )}
-
-                   {cameraActive && (
-                       <div className="relative bg-black rounded-xl overflow-hidden aspect-[3/4] mb-4">
-                           <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted></video>
-                           <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                               <button onClick={handleCapture} className="w-16 h-16 bg-white rounded-full border-4 border-slate-300 shadow-lg active:scale-95 transition-transform"></button>
-                           </div>
-                       </div>
-                   )}
-
-                   {capturedImage && (
-                       <div className="relative aspect-square rounded-xl overflow-hidden border border-slate-200">
-                            <img src={capturedImage} className="w-full h-full object-cover" />
-                            <button onClick={handleRetake} className="absolute bottom-2 right-2 bg-white/90 p-2 rounded-full shadow text-slate-700 font-bold text-xs flex items-center gap-1">
-                                <Icons.RefreshCw size={14}/> Refazer
-                            </button>
-                       </div>
-                   )}
+                    <div className="bg-orange-50 p-3 rounded-lg text-xs text-orange-800 font-bold border border-orange-100">
+                        Ao confirmar, a foto enviada pelo profissional será removida do sistema.
+                    </div>
 
                   <div className="flex gap-2 pt-2">
                       <Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button>
-                      <Button fullWidth onClick={confirmRating} disabled={loading || cameraActive || showCameraPermission}>
+                      <Button fullWidth onClick={confirmRating} disabled={loading}>
                         {loading ? '...' : 'Confirmar'}
                       </Button>
                   </div>
