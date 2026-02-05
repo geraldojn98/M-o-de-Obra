@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Coupon } from '../types';
 import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
-import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft, QrCode } from 'lucide-react';
+import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft, QrCode, RefreshCw } from 'lucide-react';
 
 // QR Code Generator
 const QRCodeDisplay: React.FC<{ value: string }> = ({ value }) => {
@@ -54,13 +54,12 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
         let channel: any;
 
         if (selectedCoupon) {
-            console.log("Iniciando escuta para cupom:", selectedCoupon.id);
+            console.log("📡 Iniciando escuta Realtime para cupom:", selectedCoupon.id);
             
-            // Reset state
             setRedemptionSuccess(false);
 
             channel = supabase
-                .channel(`coupon-tracking-${selectedCoupon.id}`)
+                .channel(`coupon-watch-${selectedCoupon.id}-${Date.now()}`)
                 .on(
                     'postgres_changes', 
                     {
@@ -70,22 +69,41 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
                         filter: `coupon_id=eq.${selectedCoupon.id}`
                     }, 
                     (payload) => {
-                        console.log("Resgate detectado em tempo real!", payload);
+                        console.log("✅ Resgate detectado via Realtime!", payload);
                         setRedemptionSuccess(true);
                     }
                 )
                 .subscribe((status) => {
-                    console.log("Status da subscrição:", status);
+                    console.log(`STATUS DA CONEXÃO REALTIME: ${status}`);
                 });
         }
 
         return () => {
             if (channel) {
-                console.log("Removendo canal");
+                console.log("🛑 Parando escuta Realtime");
                 supabase.removeChannel(channel);
             }
         };
     }, [selectedCoupon]);
+
+    // Check manual function (Fallback)
+    const checkRedemptionManual = async () => {
+        if(!selectedCoupon) return;
+        // Check if there is a redemption in the last minute
+        const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+        const { data } = await supabase
+            .from('coupon_redemptions')
+            .select('id')
+            .eq('coupon_id', selectedCoupon.id)
+            .gt('redeemed_at', oneMinuteAgo)
+            .limit(1);
+        
+        if(data && data.length > 0) {
+            setRedemptionSuccess(true);
+        } else {
+            // alert("Ainda não identificado. Peça para o cliente tentar novamente.");
+        }
+    };
 
     const fetchCoupons = async (pid: string) => {
         const { data } = await supabase.from('coupons').select('*').eq('partner_id', pid);
@@ -290,6 +308,14 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
                                     <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                                     Aguardando leitura em tempo real...
                                 </div>
+
+                                {/* Fallback Manual Check */}
+                                <button 
+                                    onClick={checkRedemptionManual}
+                                    className="text-xs text-slate-400 hover:text-brand-orange flex items-center justify-center gap-1 mx-auto mb-6"
+                                >
+                                    <RefreshCw size={12}/> Verificar Manualmente
+                                </button>
                                 
                                 <Button variant="outline" fullWidth onClick={() => setSelectedCoupon(null)}>
                                     Cancelar
