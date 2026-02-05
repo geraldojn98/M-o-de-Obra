@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X } from 'lucide-react';
 import { supabase } from '../services/supabase';
-import { Notification } from '../types';
+import { Notification as AppNotification } from '../types';
 
 interface NotificationBellProps {
     userId: string;
@@ -9,7 +9,7 @@ interface NotificationBellProps {
 }
 
 export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAction }) => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
 
@@ -26,6 +26,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
         filter: `user_id=eq.${userId}`
       }, (payload) => {
         const newNotif = payload.new as any;
+        
+        // Add to list
         setNotifications(prev => [
             {
                 id: newNotif.id,
@@ -40,6 +42,19 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
             ...prev
         ]);
         setUnreadCount(c => c + 1);
+
+        // SYSTEM NOTIFICATION TRIGGER
+        // Agora 'Notification' refere-se corretamente à API global do navegador
+        if ("Notification" in window && Notification.permission === 'granted' && document.hidden) {
+            try {
+                new Notification(newNotif.title, {
+                    body: newNotif.message,
+                    icon: '/icon.png' 
+                });
+            } catch (e) {
+                console.error("Erro ao enviar notificação do sistema", e);
+            }
+        }
       })
       .subscribe();
 
@@ -81,7 +96,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
     }
   };
 
-  const handleClickNotif = (n: Notification) => {
+  const handleClickNotif = (n: AppNotification) => {
       setIsOpen(false);
       // Logic for specific action links (e.g., open chat)
       if (n.actionLink) {

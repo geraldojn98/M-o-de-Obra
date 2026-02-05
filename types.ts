@@ -1,3 +1,4 @@
+
 export type UserRole = 'worker' | 'client' | 'admin' | 'partner';
 
 export interface User {
@@ -14,6 +15,12 @@ export interface User {
   completedJobs?: number;
   phone?: string;
   cpf?: string;
+  
+  // Location
+  city?: string;
+  state?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface ServiceCategory {
@@ -34,6 +41,12 @@ export interface Job {
   status: 'pending' | 'in_progress' | 'waiting_verification' | 'completed' | 'cancelled';
   price: number;
   date: string;
+  
+  // Location
+  city?: string;
+  state?: string;
+  latitude?: number;
+  longitude?: number;
   
   // Completion Fields
   rating?: number;

@@ -2,6 +2,7 @@
   "name": "MÃO DE OBRA",
   "description": "O app que conecta quem precisa de serviço com quem sabe fazer. Um iFood de serviços com sistema de gamificação e recompensas.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "geolocation"
   ]
 }
