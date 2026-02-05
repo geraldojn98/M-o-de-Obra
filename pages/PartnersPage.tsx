@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { Partner, Coupon } from '../types';
 import { Button } from '../components/Button';
 import { Store, MapPin, Ticket, QrCode, X, Camera } from 'lucide-react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 
 // Custom Camera Permission Modal
 const CameraPermissionModal: React.FC<{ onGrant: () => void, onClose: () => void }> = ({ onGrant, onClose }) => (
@@ -31,11 +31,25 @@ export const PartnersPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [scannerOpen, setScannerOpen] = useState(false);
     const [showPermissionModal, setShowPermissionModal] = useState(false);
+    
+    // Scan States
     const [scanResult, setScanResult] = useState<string | null>(null);
     const [scanStatus, setScanStatus] = useState<'idle'|'processing'|'success'|'error'>('idle');
+    const scannerRef = useRef<Html5Qrcode | null>(null);
 
     useEffect(() => {
         fetchData();
+    }, []);
+
+    // Cleanup camera on unmount
+    useEffect(() => {
+        return () => {
+            if (scannerRef.current && scannerRef.current.isScanning) {
+                scannerRef.current.stop().then(() => {
+                    scannerRef.current?.clear();
+                }).catch(err => console.error("Erro ao limpar scanner", err));
+            }
+        };
     }, []);
 
     const fetchData = async () => {
@@ -69,75 +83,65 @@ export const PartnersPage: React.FC = () => {
         }
     };
 
-    const handleRequestCamera = async () => {
-        try {
-            // Tenta câmera traseira primeiro
-            await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
-            });
-            setShowPermissionModal(false);
-            setScannerOpen(true);
-            setScanResult(null);
-            setScanStatus('idle');
-        } catch (err: any) {
-            console.warn("Falha ao abrir câmera traseira, tentando fallback...", err);
+    const startScanner = async () => {
+        setShowPermissionModal(false);
+        setScannerOpen(true);
+        setScanResult(null);
+        setScanStatus('idle');
+
+        // Small delay to ensure DOM element exists
+        setTimeout(async () => {
             try {
-                // Fallback: Tenta qualquer câmera
-                await navigator.mediaDevices.getUserMedia({ video: true });
-                setShowPermissionModal(false);
-                setScannerOpen(true);
-                setScanResult(null);
-                setScanStatus('idle');
-            } catch (err2) {
-                console.error(err2);
-                alert("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
-                setShowPermissionModal(false);
+                if(scannerRef.current) {
+                    await scannerRef.current.clear();
+                }
+                
+                const html5QrCode = new Html5Qrcode("reader");
+                scannerRef.current = html5QrCode;
+
+                const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+                
+                // Prefer back camera, handle constraints carefully for mobile
+                await html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config,
+                    (decodedText) => {
+                        handleScanSuccess(decodedText);
+                    },
+                    (errorMessage) => {
+                        // parse error, ignore
+                    }
+                );
+            } catch (err) {
+                console.error("Erro ao iniciar câmera", err);
+                setScannerOpen(false);
+                alert("Não foi possível iniciar a câmera. Verifique se você deu permissão e se nenhum outro app está usando a câmera.");
             }
-        }
+        }, 100);
     };
 
-    // QR Code Handling
-    useEffect(() => {
-        if (scannerOpen && !scanResult) {
-            // Wait for modal transition
-            const timer = setTimeout(() => {
-                const scanner = new Html5QrcodeScanner(
-                    "reader",
-                    { 
-                        fps: 10, 
-                        qrbox: { width: 250, height: 250 }, 
-                        aspectRatio: 1.0,
-                        // MODIFICADO: Removido 'exact' para evitar OverconstrainedError
-                        videoConstraints: {
-                            facingMode: "environment" 
-                        }
-                    },
-                    false
-                );
-                
-                scanner.render((decodedText) => {
-                    handleScanSuccess(decodedText, scanner);
-                }, (error) => {
-                    // ignore errors during scanning
-                });
-
-                // Cleanup function inside the effect
-                return () => {
-                    try { scanner.clear(); } catch(e) {}
-                };
-            }, 300);
-            return () => clearTimeout(timer);
+    const stopScanner = async () => {
+        if (scannerRef.current) {
+            try {
+                if (scannerRef.current.isScanning) {
+                    await scannerRef.current.stop();
+                }
+                scannerRef.current.clear();
+            } catch (err) {
+                console.error("Erro ao parar scanner", err);
+            }
         }
-    }, [scannerOpen]);
-
-    const handleScanSuccess = async (data: string, scanner: any) => {
-        scanner.clear();
-        setScanResult(data);
         setScannerOpen(false);
+    };
+
+    const handleScanSuccess = async (data: string) => {
+        // Stop camera immediately upon success
+        await stopScanner();
+        
+        setScanResult(data);
         setScanStatus('processing');
         
         try {
-            // Data format: coupon_id
             const couponId = data;
             const { data: session } = await supabase.auth.getSession();
             const userId = session.session?.user.id;
@@ -194,7 +198,7 @@ export const PartnersPage: React.FC = () => {
             {/* Permission Modal */}
             {showPermissionModal && (
                 <CameraPermissionModal 
-                    onGrant={handleRequestCamera} 
+                    onGrant={startScanner} 
                     onClose={() => setShowPermissionModal(false)} 
                 />
             )}
@@ -205,10 +209,10 @@ export const PartnersPage: React.FC = () => {
                     <div className="bg-white rounded-xl w-full max-w-md overflow-hidden flex flex-col h-[80vh] sm:h-auto">
                         <div className="flex justify-between items-center p-4 border-b">
                             <h3 className="font-bold text-slate-800">Escanear QR Code</h3>
-                            <button onClick={() => setScannerOpen(false)} className="p-2 bg-slate-100 rounded-full"><X size={20}/></button>
+                            <button onClick={stopScanner} className="p-2 bg-slate-100 rounded-full hover:bg-red-100 text-slate-500 hover:text-red-500 transition"><X size={20}/></button>
                         </div>
                         <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
-                             <div id="reader" className="w-full h-full"></div>
+                             <div id="reader" className="w-full h-full bg-black"></div>
                         </div>
                         <div className="p-4 bg-slate-50 text-center">
                              <p className="text-xs text-slate-500">Aponte a câmera para o código gerado pelo lojista.</p>

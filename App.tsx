@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, ServiceCategory } from './types';
 import { Mascot } from './components/Mascot';
 import { Button } from './components/Button';
-import { LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, Store, Edit, Check, AlertTriangle } from 'lucide-react';
+import { 
+    LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, 
+    Store, Edit, Check, AlertTriangle, Menu, Home, Coins, ArrowRight, History
+} from 'lucide-react';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientDashboard } from './pages/ClientDashboard';
 import { WorkerDashboard } from './pages/WorkerDashboard';
@@ -243,6 +246,87 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
     );
 };
 
+// Points Extract Modal
+const PointsModal: React.FC<{ user: User, onClose: () => void }> = ({ user, onClose }) => {
+    const [history, setHistory] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchHistory = async () => {
+            setLoading(true);
+            const data: any[] = [];
+            
+            // 1. Redemptions
+            const { data: redemptions } = await supabase.from('coupon_redemptions').select('*, coupon:coupon_id(title)').eq('user_id', user.id);
+            if(redemptions) {
+                redemptions.forEach(r => data.push({
+                    id: r.id,
+                    type: 'spent',
+                    title: `Cupom: ${r.coupon?.title}`,
+                    amount: r.cost_paid,
+                    date: r.redeemed_at
+                }));
+            }
+
+            // 2. Earnings (Completed Jobs where user was worker)
+            // Note: Currently we assume standard earnings. For precise history, a transaction table would be better.
+            if(user.role === 'worker') {
+                const { data: jobs } = await supabase.from('jobs').select('*').eq('worker_id', user.id).eq('status', 'completed');
+                if(jobs) {
+                    jobs.forEach(j => data.push({
+                        id: j.id,
+                        type: 'earned',
+                        title: `Serviço: ${j.title}`,
+                        amount: 10, // Assuming 10 pts per job as per mock rules, ideally stored in job
+                        date: j.created_at // Should be completed_at, but using created_at for now
+                    }));
+                }
+            }
+            
+            // Sort by date desc
+            data.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            setHistory(data);
+            setLoading(false);
+        };
+        fetchHistory();
+    }, [user.id]);
+
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative flex flex-col max-h-[80vh]">
+                <div className="bg-brand-orange p-6 text-white text-center relative shrink-0">
+                    <button onClick={onClose} className="absolute top-4 right-4 bg-white/20 p-1 rounded-full hover:bg-white/30"><X size={20}/></button>
+                    <p className="text-xs font-bold uppercase opacity-80 mb-1">Seu Saldo Atual</p>
+                    <div className="text-5xl font-black flex justify-center items-center gap-2">
+                        <Coins size={40} className="text-yellow-300 fill-yellow-300"/> {user.points}
+                    </div>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+                    <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm"><History size={16}/> Histórico de Movimentações</h4>
+                    {loading ? <p className="text-center p-4 text-xs text-slate-400">Carregando...</p> : (
+                        history.length === 0 ? <p className="text-center p-6 text-xs text-slate-400">Nenhuma movimentação ainda.</p> : (
+                            <div className="space-y-2">
+                                {history.map(item => (
+                                    <div key={item.id} className="bg-white p-3 rounded-xl border border-slate-100 flex justify-between items-center">
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-700">{item.title}</p>
+                                            <p className="text-[10px] text-slate-400">{new Date(item.date).toLocaleDateString()}</p>
+                                        </div>
+                                        <div className={`font-black text-sm ${item.type === 'earned' ? 'text-green-600' : 'text-red-500'}`}>
+                                            {item.type === 'earned' ? '+' : '-'}{item.amount}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[100] p-4 animate-fade-in backdrop-blur-sm">
         <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-slide-up sm:animate-fade-in">
@@ -258,11 +342,11 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
                 <div className="space-y-3">
                     <div className="bg-slate-50 p-4 rounded-2xl flex items-center gap-4 border border-slate-100">
                         <div className="bg-green-100 p-2 rounded-xl text-green-600"><Phone size={24}/></div>
-                        <div><p className="text-[10px] text-slate-400 font-black uppercase">WhatsApp</p><p className="text-sm font-bold">(11) 99999-9999</p></div>
+                        <div><p className="text-[10px] text-slate-400 font-black uppercase">WhatsApp</p><p className="text-sm font-bold">(37) 99156-1461</p></div>
                     </div>
                     <div className="bg-slate-50 p-4 rounded-2xl flex items-center gap-4 border border-slate-100">
                         <div className="bg-blue-100 p-2 rounded-xl text-blue-600"><Mail size={24}/></div>
-                        <div><p className="text-[10px] text-slate-400 font-black uppercase">Email</p><p className="text-sm font-bold">ajuda@maodeobra.com</p></div>
+                        <div><p className="text-[10px] text-slate-400 font-black uppercase">Email</p><p className="text-sm font-bold">suporte@appmaodeobra.com</p></div>
                     </div>
                 </div>
                 <Button fullWidth size="lg" onClick={onClose} className="rounded-2xl">Fechar</Button>
@@ -469,10 +553,13 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showPointsModal, setShowPointsModal] = useState(false);
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'partners'>('dashboard');
+  
+  // Drawer State
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
   // State for mandatory profile completion (Google Login)
   const [showCompleteProfile, setShowCompleteProfile] = useState(false);
@@ -545,68 +632,112 @@ export default function App() {
 
   const roleInfo = getRoleBadge(currentUser.role);
 
+  const DrawerMenu = () => (
+      <div className="fixed inset-0 z-[100] flex">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)}></div>
+          <div className="relative bg-white w-72 h-full shadow-2xl animate-fade-in flex flex-col">
+              <div className="p-6 border-b border-slate-100 bg-orange-50/50">
+                   <div className="flex items-center gap-3 mb-2">
+                       <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" />
+                       <div className="min-w-0">
+                           <p className="font-bold text-slate-800 text-lg truncate">{currentUser.name}</p>
+                           <p className="text-xs text-slate-500 truncate">{currentUser.email}</p>
+                       </div>
+                   </div>
+                   <button 
+                       onClick={() => { setShowEditProfile(true); setIsDrawerOpen(false); }}
+                       className="text-xs font-bold text-brand-orange hover:text-orange-700 flex items-center gap-1"
+                   >
+                       <Edit size={12}/> Editar Perfil
+                   </button>
+              </div>
+              
+              <div className="flex-1 p-4 space-y-2">
+                  <button 
+                    onClick={() => { setCurrentPage('dashboard'); setIsDrawerOpen(false); }}
+                    className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'dashboard' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                      <Home size={20}/> Início
+                  </button>
+                  
+                  {currentUser.role !== 'partner' && (
+                      <button 
+                        onClick={() => { setCurrentPage('partners'); setIsDrawerOpen(false); }}
+                        className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'partners' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}
+                      >
+                          <Store size={20}/> Lojas Parceiras
+                      </button>
+                  )}
+
+                  <button 
+                    onClick={() => { setShowHelp(true); setIsDrawerOpen(false); }}
+                    className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-slate-600 hover:bg-slate-50"
+                  >
+                      <HelpCircle size={20}/> Ajuda
+                  </button>
+              </div>
+
+              <div className="p-4 border-t border-slate-100">
+                   <button 
+                        onClick={async () => {
+                            await supabase.auth.signOut();
+                            setCurrentUser(null);
+                            setIsDrawerOpen(false);
+                        }} 
+                        className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-red-500 hover:bg-red-50"
+                    >
+                        <LogOut size={20} /> Sair do App
+                    </button>
+              </div>
+          </div>
+      </div>
+  );
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-orange-100 overflow-x-hidden w-full">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full">
+      {/* HEADER REDESIGNED */}
+      <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentPage('dashboard')}>
-            <img src="https://i.ibb.co/Zpwrnpr9/ROSTO-MASCOTE-TRANSPARENTE.png" className="w-10 h-10 object-contain" />
-            <div className="flex flex-col">
-                <span className="font-black text-brand-orange text-lg leading-tight tracking-tight truncate max-w-[150px] sm:max-w-none">
-                    {currentUser.name}
-                </span>
-                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>
-                    {roleInfo.label}
-                </span>
-            </div>
-          </div>
           
-          <div className="flex items-center gap-1.5 sm:gap-3">
-            {currentUser.role !== 'partner' && (
-                <button onClick={() => setCurrentPage('partners')} className={`p-2.5 rounded-2xl transition-all ${currentPage === 'partners' ? 'bg-orange-100 text-brand-orange' : 'text-slate-400 hover:bg-slate-50'}`}><Store size={22} /></button>
-            )}
-            <button onClick={() => setShowHelp(true)} className="p-2.5 text-slate-400 hover:bg-slate-50 rounded-2xl"><HelpCircle size={22} /></button>
-            <NotificationBell userId={currentUser.id} />
+          {/* LEFT: Avatar & Info */}
+          <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsDrawerOpen(true)}
+                className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 active:scale-95 transition-transform"
+              >
+                 <img src={currentUser.avatar} className="w-full h-full object-cover"/>
+              </button>
+              <div className="flex flex-col cursor-pointer" onClick={() => setIsDrawerOpen(true)}>
+                  <span className="font-black text-slate-800 text-sm leading-tight truncate max-w-[120px] sm:max-w-none">
+                      {currentUser.name.split(' ')[0]}
+                  </span>
+                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>
+                      {roleInfo.label}
+                  </span>
+              </div>
+          </div>
 
-            {currentUser.role !== 'admin' && currentUser.role !== 'partner' && (
-                <div className="bg-orange-50 px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-orange-100">
-                    <span className="text-brand-orange font-black text-xs">{currentUser.points}</span>
-                    <span className="text-orange-300 text-[10px] font-black">★</span>
-                </div>
-            )}
-            
-            <div className="relative ml-1">
-                <button onClick={() => setShowProfileMenu(!showProfileMenu)} className="w-10 h-10 rounded-2xl bg-slate-100 overflow-hidden border-2 border-white ring-2 ring-slate-100">
-                    <img src={currentUser.avatar} className="w-full h-full object-cover"/>
-                </button>
-                {showProfileMenu && (
-                    <div className="absolute right-0 mt-3 w-56 bg-white rounded-3xl shadow-2xl border border-slate-100 py-2 z-[90] animate-fade-in origin-top-right">
-                        <div className="px-5 py-3 border-b border-slate-50">
-                            <p className="font-black text-slate-800 text-sm truncate">{currentUser.name}</p>
-                            <p className="text-[10px] text-slate-400 font-bold truncate">{currentUser.email}</p>
-                        </div>
-                        <button 
-                            onClick={() => { setShowEditProfile(true); setShowProfileMenu(false); }}
-                            className="w-full text-left px-5 py-3 text-sm text-slate-600 font-bold hover:bg-slate-50 flex items-center gap-2"
-                        >
-                            <Edit size={16} /> Editar Perfil
-                        </button>
-                        <button 
-                            onClick={async () => {
-                                await supabase.auth.signOut();
-                                setCurrentUser(null);
-                                setShowProfileMenu(false);
-                            }} 
-                            className="w-full text-left px-5 py-3 text-sm text-red-500 font-bold hover:bg-red-50 flex items-center gap-2"
-                        >
-                            <LogOut size={16} /> Sair do App
-                        </button>
-                    </div>
-                )}
-            </div>
+          {/* RIGHT: Actions & Mascot */}
+          <div className="flex items-center gap-2 sm:gap-4">
+              <NotificationBell userId={currentUser.id} />
+              
+              {currentUser.role !== 'admin' && currentUser.role !== 'partner' && (
+                  <button 
+                    onClick={() => setShowPointsModal(true)}
+                    className="bg-yellow-50 hover:bg-yellow-100 px-2 sm:px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-yellow-200 transition-colors"
+                  >
+                      <Coins size={16} className="text-yellow-500 fill-yellow-500" />
+                      <span className="text-slate-700 font-black text-xs">{currentUser.points}</span>
+                  </button>
+              )}
+
+              <img src="https://i.ibb.co/Zpwrnpr9/ROSTO-MASCOTE-TRANSPARENTE.png" className="w-9 h-9 object-contain" onClick={() => setShowHelp(true)}/>
           </div>
         </div>
       </header>
+
+      {/* DRAWER */}
+      {isDrawerOpen && <DrawerMenu />}
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
         {currentUser.role === 'partner' ? <PartnerDashboard user={currentUser} /> :
@@ -619,7 +750,9 @@ export default function App() {
          )}
       </main>
 
+      {/* MODALS */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showPointsModal && <PointsModal user={currentUser} onClose={() => setShowPointsModal(false)} />}
       
       {showEditProfile && (
           <EditProfileModal 
