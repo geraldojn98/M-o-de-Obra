@@ -54,25 +54,36 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
         let channel: any;
 
         if (selectedCoupon) {
-            // Reset success when opening a new coupon
+            console.log("Iniciando escuta para cupom:", selectedCoupon.id);
+            
+            // Reset state
             setRedemptionSuccess(false);
 
             channel = supabase
-                .channel(`redemption_watch_${selectedCoupon.id}`)
-                .on('postgres_changes', {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'coupon_redemptions',
-                    filter: `coupon_id=eq.${selectedCoupon.id}`
-                }, (payload) => {
-                    // Redemption detected!
-                    setRedemptionSuccess(true);
-                })
-                .subscribe();
+                .channel(`coupon-tracking-${selectedCoupon.id}`)
+                .on(
+                    'postgres_changes', 
+                    {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'coupon_redemptions',
+                        filter: `coupon_id=eq.${selectedCoupon.id}`
+                    }, 
+                    (payload) => {
+                        console.log("Resgate detectado em tempo real!", payload);
+                        setRedemptionSuccess(true);
+                    }
+                )
+                .subscribe((status) => {
+                    console.log("Status da subscrição:", status);
+                });
         }
 
         return () => {
-            if (channel) supabase.removeChannel(channel);
+            if (channel) {
+                console.log("Removendo canal");
+                supabase.removeChannel(channel);
+            }
         };
     }, [selectedCoupon]);
 
@@ -92,8 +103,6 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
 
     const fetchHistory = async () => {
         if(!partnerId) return;
-        // Fetch profiles to get user name AND roles
-        // We use explicit join if foreign key exists, otherwise we assume 'user' relation
         const { data } = await supabase
             .from('coupon_redemptions')
             .select('*, user:user_id(full_name, allowed_roles), coupon:coupon_id(title)')
@@ -243,7 +252,7 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
                 <div className="text-center animate-fade-in w-full">
                     <div className="max-w-md mx-auto">
                         <h3 className="text-xl font-bold mb-4">Selecione para Gerar QR Code</h3>
-                        <p className="text-slate-500 mb-6">Ao clicar, um QR Code será gerado. Assim que o cliente escanear, você será notificado.</p>
+                        <p className="text-slate-500 mb-6">Ao clicar, um QR Code será gerado. Assim que o cliente escanear, você será notificado automaticamente.</p>
                         <div className="space-y-3">
                             {coupons.filter(c => c.active && c.availableQuantity > 0).map(c => (
                                 <button 
@@ -266,7 +275,7 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
             {/* POS MODAL (QR CODE) */}
             {selectedCoupon && (
                 <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-3xl w-full max-w-sm p-6 relative shadow-2xl animate-fade-in">
+                    <div className="bg-white rounded-3xl w-full max-w-sm p-6 relative shadow-2xl animate-fade-in transition-all">
                         
                         {!redemptionSuccess ? (
                             <div className="text-center">

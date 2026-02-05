@@ -156,12 +156,8 @@ export const PartnersPage: React.FC = () => {
                 setScanStatus('success');
                 
                 // NOTIFY THE PARTNER
-                // 1. Get Coupon Details to find Partner
                 const coupon = coupons.find(c => c.id === couponId);
                 if (coupon) {
-                    // 2. Find Partner's Profile ID via Partner Table (by email/relation if setup)
-                    // For now, assume partners table has email and we find profile by email.
-                    // Ideally, partners table should have 'user_id' linked to auth/profiles.
                     const { data: partnerData } = await supabase.from('partners').select('email').eq('id', coupon.partnerId).single();
                     if(partnerData && partnerData.email) {
                          const { data: profileData } = await supabase.from('profiles').select('id').eq('email', partnerData.email).single();
@@ -284,9 +280,18 @@ export const PartnersPage: React.FC = () => {
                                                     <p className="font-bold text-sm text-slate-800">{coupon.title}</p>
                                                     <p className="text-xs text-slate-500">{coupon.description}</p>
                                                 </div>
-                                                <div className="text-right">
-                                                    <span className="block font-bold text-brand-orange">{coupon.cost} pts</span>
-                                                    <span className="text-[10px] text-slate-400">{coupon.availableQuantity} rest.</span>
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <div className='text-right'>
+                                                        <span className="block font-bold text-brand-orange">{coupon.cost} pts</span>
+                                                        <span className="text-[10px] text-slate-400">{coupon.availableQuantity} rest.</span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setShowPermissionModal(true)}
+                                                        className="bg-brand-orange/10 hover:bg-brand-orange hover:text-white text-brand-orange p-2 rounded-lg transition-colors flex items-center justify-center"
+                                                        title="Escanear este cupom"
+                                                    >
+                                                        <QrCode size={16} />
+                                                    </button>
                                                 </div>
                                             </div>
                                         ))}

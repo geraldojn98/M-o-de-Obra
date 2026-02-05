@@ -4,7 +4,7 @@ import { Mascot } from './components/Mascot';
 import { Button } from './components/Button';
 import { 
     LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, 
-    Store, Edit, Check, AlertTriangle, Menu, Home, Coins, ArrowRight, History
+    Store, Edit, Check, AlertTriangle, Menu, Home, Coins, ArrowRight, History, Camera, Upload
 } from 'lucide-react';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientDashboard } from './pages/ClientDashboard';
@@ -13,6 +13,8 @@ import { PartnersPage } from './pages/PartnersPage';
 import { PartnerDashboard } from './pages/PartnerDashboard';
 import { supabase } from './services/supabase';
 import { NotificationBell } from './components/NotificationBell';
+
+const DEFAULT_AVATAR = "https://i.ibb.co/3W009gR/user-placeholder.png"; // Sombra genérica
 
 const maskPhone = (value: string) => {
   let v = value.replace(/\D/g, "");
@@ -31,7 +33,6 @@ const maskCpf = (value: string) => {
   return v;
 };
 
-// Validação Rigorosa de E-mail
 const validateEmail = (email: string): { valid: boolean; msg?: string } => {
   const cleanEmail = email.trim().toLowerCase();
   const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -65,12 +66,11 @@ const CompleteProfileModal: React.FC<{ user: User, onUpdate: () => void }> = ({ 
         setLoading(true);
 
         try {
-            // Verificar unicidade do CPF
             const { data: existingCpf } = await supabase
                 .from('profiles')
                 .select('id')
                 .eq('cpf', cpf)
-                .neq('id', user.id) // Ignora o próprio usuário
+                .neq('id', user.id)
                 .maybeSingle();
 
             if (existingCpf) {
@@ -138,7 +138,7 @@ const CompleteProfileModal: React.FC<{ user: User, onUpdate: () => void }> = ({ 
     );
 };
 
-// Edit Profile Modal
+// Edit Profile Modal with Avatar Upload
 const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: () => void }> = ({ user, onClose, onUpdate }) => {
     const [name, setName] = useState(user.name);
     const [phone, setPhone] = useState(user.phone || '');
@@ -146,6 +146,7 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
     const [specialties, setSpecialties] = useState<string[]>(user.specialty ? user.specialty.split(',').map(s=>s.trim()) : []);
     const [allCategories, setAllCategories] = useState<ServiceCategory[]>([]);
     const [loading, setLoading] = useState(false);
+    const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
     useEffect(() => {
         if(user.role === 'worker') {
@@ -161,6 +162,47 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
             if(prev.length >= 3) return prev;
             return [...prev, catName];
         });
+    };
+
+    const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        try {
+          setUploadingAvatar(true);
+          if (!event.target.files || event.target.files.length === 0) {
+            throw new Error('Você deve selecionar uma imagem para enviar.');
+          }
+    
+          const file = event.target.files[0];
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+          const filePath = `${fileName}`;
+    
+          // Upload to Supabase Storage 'avatars' bucket
+          let { error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(filePath, file);
+    
+          if (uploadError) throw uploadError;
+
+          // Get Public URL
+          const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+          
+          if (data) {
+             // Update Profile
+             const { error: updateError } = await supabase
+                .from('profiles')
+                .update({ avatar_url: data.publicUrl })
+                .eq('id', user.id);
+             
+             if(updateError) throw updateError;
+             
+             // Refresh User Data
+             onUpdate();
+          }
+        } catch (error: any) {
+          alert('Erro ao fazer upload da imagem: ' + error.message);
+        } finally {
+          setUploadingAvatar(false);
+        }
     };
 
     const handleSave = async () => {
@@ -192,6 +234,28 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-xl text-slate-800">Editar Perfil</h3>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><X size={24}/></button>
+                </div>
+
+                <div className="flex flex-col items-center mb-6">
+                    <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-slate-200 mb-2 group">
+                         <img src={user.avatar || DEFAULT_AVATAR} className="w-full h-full object-cover" />
+                         {uploadingAvatar && (
+                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xs">Carregando...</div>
+                         )}
+                         {!uploadingAvatar && (
+                             <label className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
+                                <Upload className="text-white" size={24} />
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    className="hidden" 
+                                    onChange={handleAvatarUpload}
+                                    disabled={uploadingAvatar}
+                                />
+                             </label>
+                         )}
+                    </div>
+                    <p className="text-xs text-slate-400 font-bold">Toque na foto para alterar</p>
                 </div>
 
                 <div className="space-y-4">
@@ -268,8 +332,7 @@ const PointsModal: React.FC<{ user: User, onClose: () => void }> = ({ user, onCl
                 }));
             }
 
-            // 2. Earnings (Completed Jobs where user was worker)
-            // Note: Currently we assume standard earnings. For precise history, a transaction table would be better.
+            // 2. Earnings
             if(user.role === 'worker') {
                 const { data: jobs } = await supabase.from('jobs').select('*').eq('worker_id', user.id).eq('status', 'completed');
                 if(jobs) {
@@ -277,8 +340,8 @@ const PointsModal: React.FC<{ user: User, onClose: () => void }> = ({ user, onCl
                         id: j.id,
                         type: 'earned',
                         title: `Serviço: ${j.title}`,
-                        amount: 10, // Assuming 10 pts per job as per mock rules, ideally stored in job
-                        date: j.created_at // Should be completed_at, but using created_at for now
+                        amount: 10, 
+                        date: j.created_at 
                     }));
                 }
             }
@@ -370,7 +433,6 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
     const [regPhone, setRegPhone] = useState('');
     const [regCpf, setRegCpf] = useState('');
     const [regPass, setRegPass] = useState('');
-    // REMOVIDO regSpecialty do formulário inicial
 
     const handleGoogleLogin = async () => {
         setLoading(true);
@@ -418,10 +480,10 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                 full_name: meta.full_name || 'Usuário Recuperado',
                 allowed_roles: isPartner ? ['partner'] : [meta.role || 'client'],
                 points: isPartner ? 0 : 50,
-                avatar_url: meta.avatar_url || meta.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authData.user.email}`,
+                avatar_url: meta.avatar_url || meta.picture || DEFAULT_AVATAR,
                 phone: meta.phone || '',
                 cpf: meta.cpf || '',
-                specialty: '' // Specialty starts empty
+                specialty: '' 
             };
             await supabase.from('profiles').insert(newProfile);
             profile = newProfile;
@@ -436,7 +498,6 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             currentRole = 'admin';
         } else if (!allowedRoles.includes(activeTab)) {
              await supabase.auth.signOut();
-             // Determine which role they actually have to show a better message
              let actualRoleName = 'Desconhecido';
              if (allowedRoles.includes('client')) actualRoleName = 'Cliente';
              else if (allowedRoles.includes('worker')) actualRoleName = 'Profissional';
@@ -448,7 +509,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
   
         onLogin({
           id: profile.id, email: profile.email, name: profile.full_name, role: currentRole,
-          points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
+          points: profile.points, avatar: profile.avatar_url || DEFAULT_AVATAR, completedJobs: profile.completed_jobs,
           rating: profile.rating, profession: profile.specialty, specialty: profile.specialty, bio: profile.bio,
           phone: profile.phone, cpf: profile.cpf
         });
@@ -468,7 +529,6 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
 
       setLoading(true);
       try {
-        // Verificar unicidade do CPF se fornecido
         if (activeTab === 'worker' && regCpf) {
             const { data: existing } = await supabase.from('profiles').select('id').eq('cpf', regCpf).maybeSingle();
             if (existing) throw new Error("CPF já cadastrado em outra conta.");
@@ -479,7 +539,8 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             role: activeTab, 
             phone: regPhone, 
             cpf: activeTab === 'worker' ? regCpf : null,
-            specialty: null // Always null on register
+            specialty: null,
+            avatar_url: DEFAULT_AVATAR
         };
         const { error } = await supabase.auth.signUp({ email: regEmail, password: regPass, options: { data: metaData } });
         if (error) throw error;
@@ -537,8 +598,6 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                  <input value={regPhone} onChange={e=>setRegPhone(maskPhone(e.target.value))} className={inputClass} placeholder="Celular" required />
                  {activeTab === 'worker' && <input value={regCpf} onChange={e=>setRegCpf(maskCpf(e.target.value))} className={inputClass} placeholder="CPF" required />}
                  
-                 {/* Especialidade Removida daqui */}
-
                  <input type="password" value={regPass} onChange={e=>setRegPass(e.target.value)} className={inputClass} placeholder="Senha" required />
                  {error && <p className="text-red-500 text-sm font-bold text-center">{error}</p>}
                  <Button type="submit" fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200">{loading ? 'Criando...' : 'Finalizar Cadastro'}</Button>
@@ -558,10 +617,7 @@ export default function App() {
   const [showPointsModal, setShowPointsModal] = useState(false);
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'partners'>('dashboard');
   
-  // Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  
-  // State for mandatory profile completion (Google Login)
   const [showCompleteProfile, setShowCompleteProfile] = useState(false);
 
   const fetchProfileAndSetUser = async (userId: string) => {
@@ -570,11 +626,10 @@ export default function App() {
         const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
         setCurrentUser({
             id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
-            points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
+            points: profile.points, avatar: profile.avatar_url || DEFAULT_AVATAR, completedJobs: profile.completed_jobs,
             rating: profile.rating, phone: profile.phone, cpf: profile.cpf, specialty: profile.specialty, bio: profile.bio
         });
 
-        // Trigger Mandatory Completion if missing phone or CPF
         if (!profile.phone || !profile.cpf) {
             setShowCompleteProfile(true);
         } else {
@@ -620,7 +675,6 @@ export default function App() {
 
   if (!currentUser) return <LoginPage onLogin={setCurrentUser} />;
 
-  // Header Logic
   const getRoleBadge = (role: UserRole) => {
       switch(role) {
           case 'admin': return { label: 'Admin', bg: 'bg-red-100 text-red-600' };
@@ -695,11 +749,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-orange-100 overflow-x-hidden w-full">
-      {/* HEADER REDESIGNED */}
       <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
           
-          {/* LEFT: Avatar & Info */}
           <div className="flex items-center gap-3">
               <button 
                 onClick={() => setIsDrawerOpen(true)}
@@ -717,7 +769,6 @@ export default function App() {
               </div>
           </div>
 
-          {/* RIGHT: Actions & Mascot */}
           <div className="flex items-center gap-2 sm:gap-4">
               <NotificationBell userId={currentUser.id} />
               
@@ -736,7 +787,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* DRAWER */}
       {isDrawerOpen && <DrawerMenu />}
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
@@ -750,7 +800,6 @@ export default function App() {
          )}
       </main>
 
-      {/* MODALS */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showPointsModal && <PointsModal user={currentUser} onClose={() => setShowPointsModal(false)} />}
       
@@ -762,7 +811,6 @@ export default function App() {
           />
       )}
 
-      {/* Mandatory Completion for Google Logins */}
       {showCompleteProfile && (
           <CompleteProfileModal 
              user={currentUser} 
