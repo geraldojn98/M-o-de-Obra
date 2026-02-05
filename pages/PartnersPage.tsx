@@ -54,20 +54,53 @@ export const PartnersPage: React.FC = () => {
 
     const fetchData = async () => {
         setLoading(true);
+        // 1. Buscar parceiros e cupons
         const { data: pData } = await supabase.from('partners').select('*').eq('active', true);
         const { data: cData } = await supabase.from('coupons').select('*').eq('active', true).gt('available_quantity', 0);
 
-        if (pData) setPartners(pData);
-        if (cData) setCoupons(cData.map((c:any) => ({
-            id: c.id,
-            partnerId: c.partner_id,
-            title: c.title,
-            description: c.description,
-            cost: c.cost,
-            totalQuantity: c.total_quantity,
-            availableQuantity: c.available_quantity,
-            active: c.active
-        })));
+        if (pData) {
+            // 2. Buscar avatares atualizados da tabela profiles para garantir a foto correta
+            // Criamos um mapa de email -> avatar_url
+            const emails = pData.map(p => p.email).filter(Boolean);
+            let profileMap: Record<string, string> = {};
+            
+            if (emails.length > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('email, avatar_url').in('email', emails);
+                if (profiles) {
+                    profiles.forEach(prof => {
+                        if (prof.email) profileMap[prof.email] = prof.avatar_url;
+                    });
+                }
+            }
+
+            // 3. Mapear parceiros unindo as informações
+            const mappedPartners = pData.map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                category: p.category,
+                // Prioridade: Avatar do Profile (atualizado pelo usuário) > Logo do Banco > Placeholder
+                logoUrl: profileMap[p.email] || p.logo_url || p.avatar_url || 'https://via.placeholder.com/60',
+                whatsapp: p.whatsapp,
+                address: p.address,
+                active: p.active,
+                email: p.email
+            }));
+            
+            setPartners(mappedPartners);
+        }
+
+        if (cData) {
+            setCoupons(cData.map((c:any) => ({
+                id: c.id,
+                partnerId: c.partner_id,
+                title: c.title,
+                description: c.description,
+                cost: c.cost,
+                totalQuantity: c.total_quantity,
+                availableQuantity: c.available_quantity,
+                active: c.active
+            })));
+        }
         setLoading(false);
     };
 
