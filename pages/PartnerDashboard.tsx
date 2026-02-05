@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Coupon } from '../types';
 import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
-import { Plus, Trash2, X, Lock, History, Ticket } from 'lucide-react';
+import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft } from 'lucide-react';
 
 // QR Code Generator
 const QRCodeDisplay: React.FC<{ value: string }> = ({ value }) => {
@@ -27,7 +27,9 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
     const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null); // For POS
     const [showPinModal, setShowPinModal] = useState<'set' | 'auth' | null>(null); // 'set' = first time setup, 'auth' = creating coupon
     const [pinInput, setPinInput] = useState('');
-    const [verifiedPin, setVerifiedPin] = useState<string | null>(null); // Temporarily store verified pin for session or action
+    
+    // Realtime Redemption State
+    const [redemptionSuccess, setRedemptionSuccess] = useState(false);
 
     useEffect(() => {
         const fetchPartner = async () => {
@@ -46,6 +48,37 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
             fetchHistory();
         }
     }, [activeTab, partnerId]);
+
+    // Realtime Listener for Redemptions
+    useEffect(() => {
+        let channel: any;
+
+        if (selectedCoupon && !redemptionSuccess) {
+            channel = supabase
+                .channel(`redemption_watch_${selectedCoupon.id}`)
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'coupon_redemptions',
+                    filter: `coupon_id=eq.${selectedCoupon.id}`
+                }, (payload) => {
+                    // Redemption detected!
+                    setRedemptionSuccess(true);
+                })
+                .subscribe();
+        }
+
+        return () => {
+            if (channel) supabase.removeChannel(channel);
+        };
+    }, [selectedCoupon, redemptionSuccess]);
+
+    // Reset success state when closing POS or changing coupon
+    useEffect(() => {
+        if (!selectedCoupon) {
+            setRedemptionSuccess(false);
+        }
+    }, [selectedCoupon]);
 
     const fetchCoupons = async (pid: string) => {
         const { data } = await supabase.from('coupons').select('*').eq('partner_id', pid);
@@ -69,8 +102,6 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
             .select('*, user:user_id(full_name), coupon:coupon_id(title)')
             .order('redeemed_at', { ascending: false });
         
-        // Filter locally for simplicity as RLS allows reading own partner coupons anyway
-        // But better is to join and filter. The RLS policy I wrote allows reading redemptions linked to owned coupons.
         if (data) setRedemptions(data);
     };
 
@@ -133,6 +164,12 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
         if(!confirm("Excluir cupom?")) return;
         await supabase.from('coupons').update({ active: false }).eq('id', id);
         if(partnerId) fetchCoupons(partnerId);
+    };
+
+    const handleCloseSuccess = () => {
+        setRedemptionSuccess(false);
+        setSelectedCoupon(null);
+        if(partnerId) fetchCoupons(partnerId); // Refresh quantities
     };
 
     if (!partnerId) return <div className="p-10 text-center">Carregando dados do parceiro...</div>;
@@ -199,7 +236,7 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
             )}
 
             {activeTab === 'pos' && (
-                <div className="text-center animate-fade-in">
+                <div className="text-center animate-fade-in w-full">
                     {!selectedCoupon ? (
                         <div className="max-w-md mx-auto">
                             <h3 className="text-xl font-bold mb-4">O que o cliente vai resgatar?</h3>
@@ -221,19 +258,37 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
                             </div>
                         </div>
                     ) : (
-                        <div className="bg-brand-blue/5 p-8 rounded-2xl inline-block border-2 border-brand-blue/20 w-full max-w-sm">
-                            <h3 className="text-2xl font-bold text-brand-blue mb-2">{selectedCoupon.title}</h3>
-                            <p className="text-slate-600 mb-6">Peça para o cliente escanear este código no App.</p>
-                            
-                            <div className="flex justify-center mb-6">
-                                <QRCodeDisplay value={selectedCoupon.id} />
-                            </div>
+                        <div className="w-full flex justify-center">
+                            {redemptionSuccess ? (
+                                <div className="bg-white p-8 rounded-3xl shadow-2xl border-2 border-green-100 animate-bounce-slow max-w-sm w-full flex flex-col items-center">
+                                    <div className="w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
+                                        <CheckCircle size={48} />
+                                    </div>
+                                    <h3 className="text-2xl font-black text-slate-800 mb-2">Resgatado!</h3>
+                                    <p className="text-slate-500 font-medium mb-8">O cupom foi validado com sucesso.</p>
+                                    <Button fullWidth size="lg" onClick={handleCloseSuccess}>
+                                        Concluir e Voltar
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="bg-brand-blue/5 p-8 rounded-2xl inline-block border-2 border-brand-blue/20 w-full max-w-sm">
+                                    <h3 className="text-2xl font-bold text-brand-blue mb-2">{selectedCoupon.title}</h3>
+                                    <p className="text-slate-600 mb-6">Peça para o cliente escanear este código no App.</p>
+                                    
+                                    <div className="flex justify-center mb-6 bg-white p-2 rounded-xl">
+                                        <QRCodeDisplay value={selectedCoupon.id} />
+                                    </div>
 
-                            <p className="text-sm font-bold text-slate-500 mb-4">Valor: {selectedCoupon.cost} Pontos</p>
-                            
-                            <Button variant="outline" onClick={() => setSelectedCoupon(null)} className="flex items-center gap-2 mx-auto">
-                                <X size={18}/> Cancelar / Voltar
-                            </Button>
+                                    <div className="flex items-center justify-center gap-2 mb-6 text-sm font-bold text-slate-500 bg-white/50 p-2 rounded-lg">
+                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                        Aguardando leitura...
+                                    </div>
+                                    
+                                    <Button variant="outline" onClick={() => setSelectedCoupon(null)} className="flex items-center gap-2 mx-auto">
+                                        <ArrowLeft size={18}/> Cancelar
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
