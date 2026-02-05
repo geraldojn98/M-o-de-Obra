@@ -303,6 +303,9 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
         .eq('id', jobId);
       
       if (error) {
+          console.error("Erro ao aceitar:", error);
+          // Show alert to user so they know it's a permission issue
+          alert("Não foi possível aceitar: " + error.message + ". Peça ao administrador para rodar o Script SQL de correção.");
           showToast(error.message, 'error');
           setLoadingAction(false);
       } else {

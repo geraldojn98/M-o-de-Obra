@@ -158,9 +158,26 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const handleDeleteJob = async (id: string) => {
-      if(!confirm("Tem certeza que deseja apagar este serviço?")) return;
-      await supabase.from('jobs').delete().eq('id', id);
-      fetchData();
+      if(!confirm("Tem certeza que deseja apagar este serviço e todas as mensagens vinculadas a ele?")) return;
+      
+      try {
+          // 1. Manually delete related messages first to avoid Foreign Key constraints
+          // (This fixes the 'Delete' issue if ON DELETE CASCADE is missing in DB)
+          await supabase.from('messages').delete().eq('job_id', id);
+          
+          // 2. Delete the job
+          const { error } = await supabase.from('jobs').delete().eq('id', id);
+          
+          if (error) {
+              console.error(error);
+              alert("Erro ao apagar serviço: " + error.message);
+          } else {
+              // Optimistic UI update
+              setJobs(prev => prev.filter(j => j.id !== id));
+          }
+      } catch (e: any) {
+          alert("Erro: " + e.message);
+      }
   };
 
   const handleSendNotification = async () => {
@@ -310,7 +327,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
       )}
 
-      {/* JOBS TAB - ADICIONADO AQUI */}
+      {/* JOBS TAB */}
       {activeTab === 'jobs' && (
           <div className="space-y-4 animate-fade-in">
               <div className="bg-blue-50 text-blue-800 p-4 rounded-2xl mb-4 border border-blue-100">
