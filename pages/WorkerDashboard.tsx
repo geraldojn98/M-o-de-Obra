@@ -294,6 +294,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       }
       setLoadingAction(true);
 
+      const jobToAccept = availableJobs.find(j => j.id === jobId);
+
       const { error } = await supabase
         .from('jobs')
         .update({ worker_id: user.id, status: 'in_progress' })
@@ -303,20 +305,31 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           showToast(error.message, 'error');
           setLoadingAction(false);
       } else {
-          // Notify Client
-          const job = availableJobs.find(j => j.id === jobId);
-          if (job) {
+          // Notify Client & Optimistic Update
+          if (jobToAccept) {
              await supabase.from('notifications').insert({
-                 user_id: job.clientId,
+                 user_id: jobToAccept.clientId,
                  title: 'Profissional a caminho!',
-                 message: `${user.name} aceitou seu pedido: ${job.title}`,
+                 message: `${user.name} aceitou seu pedido: ${jobToAccept.title}`,
                  type: 'job_update'
              });
+
+             // OPTIMISTIC UPDATE: Move job locally to avoid refetch delay
+             const newJobState = {
+                 ...jobToAccept,
+                 status: 'in_progress' as const,
+                 workerId: user.id
+             };
+             
+             // Remove from available and add to myJobs
+             setAvailableJobs(prev => prev.filter(j => j.id !== jobId));
+             setMyJobs(prev => [newJobState, ...prev]);
+             setHasActiveJob(true);
           }
+
           showToast('Serviço aceito com sucesso!', 'success');
-          setActiveTab('my_jobs');
-          fetchData();
           setLoadingAction(false);
+          setActiveTab('my_jobs'); // This switches view to 'My Jobs'
       }
   };
 
