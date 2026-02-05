@@ -34,7 +34,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const [jobTitle, setJobTitle] = useState('');
   const [jobDesc, setJobDesc] = useState('');
   const [jobPrice, setJobPrice] = useState('');
-  const [jobCategory, setJobCategory] = useState('');
+  // Multi-Select Categories
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [otherCategoryInput, setOtherCategoryInput] = useState('');
+  const [isAllCategories, setIsAllCategories] = useState(true);
 
   // Find Pro State
   const [workers, setWorkers] = useState<any[]>([]);
@@ -86,7 +89,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const fetchData = async () => {
     setLoading(true);
     // Categories
-    const { data: cats } = await supabase.from('service_categories').select('*');
+    const { data: cats } = await supabase.from('service_categories').select('*').order('name');
     if (cats) setCategories(cats);
 
     // Jobs
@@ -173,14 +176,48 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
     handleStartCamera();
   };
 
+  // --- CATEGORY HANDLER ---
+  const toggleCategory = (catName: string) => {
+      setSelectedCategories(prev => {
+          if (prev.includes(catName)) return prev.filter(c => c !== catName);
+          return [...prev, catName];
+      });
+      if(isAllCategories) setIsAllCategories(false);
+  };
+
   const handlePostJob = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+
+    let finalCategoryString = '';
+    
+    if (isAllCategories) {
+        finalCategoryString = ''; // Empty means visible to all
+    } else {
+        const cats = [...selectedCategories];
+        // Handle "Outros"
+        if (cats.includes('Outros')) {
+             const othersIndex = cats.indexOf('Outros');
+             if (othersIndex > -1) cats.splice(othersIndex, 1); // Remove raw "Outros"
+             if (otherCategoryInput.trim()) {
+                 cats.push(`Sugestão: ${otherCategoryInput.trim()}`);
+             } else {
+                 cats.push('Outros');
+             }
+        }
+        if (cats.length === 0) {
+            showToast("Selecione pelo menos uma categoria.", 'error');
+            setLoading(false);
+            return;
+        }
+        finalCategoryString = cats.join(', ');
+    }
+
     const { error } = await supabase.from('jobs').insert({
         title: jobTitle,
         description: jobDesc,
         client_id: user.id,
-        category_name: jobCategory,
+        category_name: finalCategoryString,
         price: jobPrice ? parseFloat(jobPrice) : null,
         status: 'pending'
     });
@@ -189,7 +226,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
         showToast(error.message, 'error');
     } else {
         showToast('Pedido publicado com sucesso!', 'success');
-        setJobTitle(''); setJobDesc(''); setJobPrice(''); setJobCategory('');
+        setJobTitle(''); setJobDesc(''); setJobPrice(''); 
+        setSelectedCategories([]); setOtherCategoryInput(''); setIsAllCategories(true);
         setViewMode('selection');
         fetchData();
     }
@@ -335,11 +373,12 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const fetchWorkersByCategory = async (category: string) => {
       setLoading(true);
       setSelectedCategory(category);
+      // Filter logic: worker specialty contains the category
       const { data } = await supabase
         .from('profiles')
         .select('*')
         .contains('allowed_roles', ['worker'])
-        .eq('specialty', category);
+        .ilike('specialty', `%${category}%`); // Simple matching
       
       setWorkers(data || []);
       setLoading(false);
@@ -375,7 +414,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                                 className="flex-1 bg-white text-brand-orange py-5 px-6 rounded-xl font-bold hover:bg-orange-50 transition shadow-md flex flex-col items-center sm:items-start text-center sm:text-left"
                             >
                                 <span className="text-lg">Pedido Aberto</span>
-                                <span className="text-xs font-normal opacity-80 mt-1">Visível para todos os profissionais</span>
+                                <span className="text-xs font-normal opacity-80 mt-1">Visível para profissionais</span>
                             </button>
                             <button 
                                 onClick={() => setViewMode('find_pro')}
@@ -392,15 +431,65 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
             {viewMode === 'post_job' && (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 animate-fade-in">
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-lg">Criar Pedido Público</h3>
+                        <h3 className="font-bold text-lg">Criar Pedido</h3>
                         <button onClick={() => setViewMode('selection')} className="text-sm text-slate-500 hover:text-brand-orange">Cancelar</button>
                     </div>
                     <form onSubmit={handlePostJob} className="space-y-4">
                         <input value={jobTitle} onChange={e=>setJobTitle(e.target.value)} placeholder="Título do Pedido (Ex: Consertar pia)" className="w-full px-4 py-3 bg-slate-50 border rounded-lg" required />
-                        <select value={jobCategory} onChange={e=>setJobCategory(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border rounded-lg" required>
-                            <option value="">Selecione a Categoria</option>
-                            {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        </select>
+                        
+                        {/* Category Selection */}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                             <p className="text-sm font-bold text-slate-700 mb-2">Para quem este pedido deve aparecer?</p>
+                             
+                             <button 
+                                type="button" 
+                                onClick={() => { setIsAllCategories(true); setSelectedCategories([]); }}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold mb-2 flex items-center gap-2 ${isAllCategories ? 'bg-brand-orange text-white' : 'bg-white text-slate-500 border'}`}
+                             >
+                                <Icons.Globe size={16}/> Qualquer Categoria (Visível para todos)
+                             </button>
+
+                             <button 
+                                type="button" 
+                                onClick={() => setIsAllCategories(false)}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold mb-3 flex items-center gap-2 ${!isAllCategories ? 'bg-brand-orange text-white' : 'bg-white text-slate-500 border'}`}
+                             >
+                                <Icons.Filter size={16}/> Categorias Específicas
+                             </button>
+                             
+                             {!isAllCategories && (
+                                 <div className="grid grid-cols-2 gap-2 mt-2 max-h-48 overflow-y-auto p-1">
+                                     {categories.map(cat => (
+                                         <button
+                                            key={cat.id}
+                                            type="button"
+                                            onClick={() => toggleCategory(cat.name)}
+                                            className={`text-xs p-2 rounded border text-left flex items-center gap-2 ${selectedCategories.includes(cat.name) ? 'bg-blue-100 border-blue-300 text-blue-800 font-bold' : 'bg-white border-slate-200 text-slate-600'}`}
+                                         >
+                                            <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedCategories.includes(cat.name) ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300'}`}>
+                                                {selectedCategories.includes(cat.name) && <Icons.Check size={12} className="text-white"/>}
+                                            </div>
+                                            {cat.name}
+                                         </button>
+                                     ))}
+                                 </div>
+                             )}
+
+                             {!isAllCategories && selectedCategories.includes('Outros') && (
+                                 <div className="mt-3 animate-fade-in">
+                                     <label className="text-xs font-bold text-slate-500 uppercase">Qual categoria seria apropriada?</label>
+                                     <input 
+                                        className="w-full mt-1 p-2 text-sm border rounded focus:ring-1 focus:ring-brand-orange outline-none" 
+                                        placeholder="Ex: Piscineiro, Vidraceiro..."
+                                        value={otherCategoryInput}
+                                        onChange={e => setOtherCategoryInput(e.target.value)}
+                                        required
+                                     />
+                                     <p className="text-[10px] text-slate-400 mt-1">Essa informação será enviada como sugestão ao administrador.</p>
+                                 </div>
+                             )}
+                        </div>
+
                         <textarea value={jobDesc} onChange={e=>setJobDesc(e.target.value)} placeholder="Descreva detalhadamente..." className="w-full px-4 py-3 bg-slate-50 border rounded-lg h-32" required />
                         <input type="number" value={jobPrice} onChange={e=>setJobPrice(e.target.value)} placeholder="Orçamento (Opcional)" className="w-full px-4 py-3 bg-slate-50 border rounded-lg" />
                         <Button type="submit" fullWidth disabled={loading} size="lg">Publicar Pedido</Button>
@@ -417,7 +506,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                     
                     {!selectedCategory ? (
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-                            {categories.map(cat => {
+                            {categories.filter(c => c.name !== 'Outros').map(cat => {
                                 const Icon = (Icons as any)[cat.icon] || Icons.HelpCircle;
                                 return (
                                     <button key={cat.id} onClick={() => fetchWorkersByCategory(cat.name)} className="bg-white p-4 rounded-xl shadow-sm border hover:border-brand-orange flex flex-col items-center gap-2 transition-all active:scale-95">
@@ -436,7 +525,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                                     <img src={w.avatar_url} className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
                                     <div className="flex-1 min-w-0">
                                         <h4 className="font-bold truncate">{w.full_name}</h4>
-                                        <p className="text-xs text-slate-500 truncate">{w.bio || 'Sem descrição.'}</p>
+                                        <p className="text-xs text-slate-500 truncate">{w.specialty}</p>
                                         <div className="flex items-center gap-1 text-xs text-yellow-600 mt-1"><Icons.Star size={12}/> {w.rating}</div>
                                     </div>
                                     <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>

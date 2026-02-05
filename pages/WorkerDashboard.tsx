@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Job } from '../types';
+import { User, Job, ServiceCategory } from '../types';
 import { Button } from '../components/Button';
-import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, RefreshCw } from 'lucide-react';
+import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, RefreshCw, Check } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 
@@ -19,6 +19,97 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () 
     </div>
 );
 
+// Specialty Selection Modal for First Time
+const SpecialtySelectionModal: React.FC<{ userId: string, onSave: () => void }> = ({ userId, onSave }) => {
+    const [categories, setCategories] = useState<ServiceCategory[]>([]);
+    const [selected, setSelected] = useState<string[]>([]);
+    const [otherText, setOtherText] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        // Fetch all categories including 'Outros'
+        supabase.from('service_categories').select('*').order('name').then(({data}) => {
+            if(data) setCategories(data);
+        });
+    }, []);
+
+    const toggle = (name: string) => {
+        if(selected.includes(name)) setSelected(p => p.filter(s => s !== name));
+        else if (selected.length < 3) setSelected(p => [...p, name]);
+    };
+
+    const handleSave = async () => {
+        if(selected.length === 0) return alert("Selecione pelo menos uma especialidade.");
+        if(selected.includes('Outros') && !otherText.trim()) return alert("Por favor, digite qual é a sua outra especialidade.");
+
+        setLoading(true);
+        
+        // Prepare string
+        const finalSelection = selected.filter(s => s !== 'Outros');
+        if (selected.includes('Outros')) {
+            finalSelection.push(`Sugestão: ${otherText.trim()}`);
+        }
+
+        const { error } = await supabase.from('profiles').update({ specialty: finalSelection.join(', ') }).eq('id', userId);
+        if(!error) {
+            onSave();
+        } else {
+            alert("Erro: " + error.message);
+        }
+        setLoading(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[200] flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+            <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl relative overflow-y-auto max-h-[90vh]">
+                <h3 className="font-black text-2xl text-slate-800 mb-2">Qual sua especialidade?</h3>
+                <p className="text-slate-500 text-sm mb-4">
+                    Selecione as categorias de serviço que você realiza.
+                </p>
+                <div className="bg-orange-50 text-orange-800 text-xs p-3 rounded-xl mb-4 font-bold border border-orange-100">
+                    Você pode marcar até 3 especialidades, mas recomendamos apenas uma para que você seja melhor avaliado.
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-4 p-1">
+                    {categories.map(cat => (
+                        <button 
+                            key={cat.id}
+                            onClick={() => toggle(cat.name)}
+                            className={`p-3 rounded-xl text-xs font-bold text-left flex items-center justify-between border transition-all ${
+                                selected.includes(cat.name) 
+                                ? 'bg-brand-blue text-white border-brand-blue shadow-lg shadow-blue-200' 
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            } ${(!selected.includes(cat.name) && selected.length >= 3) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!selected.includes(cat.name) && selected.length >= 3}
+                        >
+                            {cat.name}
+                            {selected.includes(cat.name) && <Check size={16}/>}
+                        </button>
+                    ))}
+                </div>
+
+                {selected.includes('Outros') && (
+                    <div className="mb-6 animate-fade-in">
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Qual sua especialidade?</label>
+                        <input 
+                            className="w-full p-3 bg-slate-50 border-2 border-brand-blue rounded-xl outline-none focus:ring-2 focus:ring-blue-200"
+                            placeholder="Digite aqui (ex: Piscineiro)"
+                            value={otherText}
+                            onChange={e => setOtherText(e.target.value)}
+                            autoFocus
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">Essa informação será enviada como sugestão.</p>
+                    </div>
+                )}
+                
+                <Button fullWidth size="lg" onClick={handleSave} disabled={loading}>
+                    {loading ? 'Salvando...' : 'Confirmar e Começar'}
+                </Button>
+            </div>
+        </div>
+    );
+};
+
 export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const [activeTab, setActiveTab] = useState<'jobs' | 'my_jobs' | 'history'>('jobs');
   const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
@@ -30,6 +121,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
   const [chatPartnerName, setChatPartnerName] = useState('');
+  const [showSpecialtyModal, setShowSpecialtyModal] = useState(false);
 
   // Modals State
   const [modalType, setModalType] = useState<'cancel' | 'finish' | null>(null);
@@ -43,8 +135,13 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    // Check if user has specialties
+    // SE O CAMPO ESTIVER VAZIO, O MODAL APARECE. Isso cobre o caso de novos cadastros.
+    if (!user.specialty || user.specialty.trim() === '') {
+        setShowSpecialtyModal(true);
+    }
     fetchData();
-  }, [user.id, activeTab]);
+  }, [user.id, activeTab, user.specialty]);
 
   useEffect(() => {
       if (toast) {
@@ -63,7 +160,30 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
         .eq('status', 'pending');
     
     if (openData) {
-        const filtered = openData.filter((j: any) => j.worker_id === null || j.worker_id === user.id);
+        const filtered = openData.filter((j: any) => {
+            // Already assigned to me (Direct Hire) OR Not assigned to anyone
+            const isAssignedToMe = j.worker_id === user.id;
+            const isUnassigned = j.worker_id === null;
+            
+            if (isAssignedToMe) return true;
+            if (!isUnassigned) return false;
+
+            // Category Matching Logic
+            // Job Category Name can be: empty (all), "Pedreiro", or "Pedreiro, Pintor", or "Sugestão: ..."
+            // User Specialty can be: "Pedreiro, Eletricista"
+            
+            const jobCats = j.category_name ? j.category_name.split(',').map((s:string) => s.trim()) : [];
+            const userSpecs = user.specialty ? user.specialty.split(',').map((s: string) => s.trim()) : [];
+
+            // If job has no category, it's open to all
+            if (jobCats.length === 0 || (jobCats.length === 1 && jobCats[0] === '')) return true;
+
+            // Check if ANY of the job categories match ANY of the user specialties
+            // Note: simple includes match works for "Sugestão: X" if user has "Sugestão: X"
+            const hasMatch = jobCats.some((cat: string) => userSpecs.some((spec: string) => spec.includes(cat) || cat.includes(spec)));
+            return hasMatch;
+        });
+
         setAvailableJobs(filtered.map((j:any) => ({
             id: j.id,
             title: j.title,
@@ -73,7 +193,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
             status: 'pending',
             price: j.price || 0,
             date: j.created_at,
-            workerId: j.worker_id
+            workerId: j.worker_id,
+            category: j.category_name
         })));
     }
 
@@ -302,10 +423,11 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
     <div className="space-y-6 relative">
        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-       {!user.specialty && (
-           <div className="bg-red-50 border border-red-200 p-4 rounded-xl text-red-700 text-sm mb-4">
-               Configure sua especialidade no perfil para aparecer nas buscas!
-           </div>
+       {showSpecialtyModal && (
+           <SpecialtySelectionModal 
+                userId={user.id} 
+                onSave={() => { setShowSpecialtyModal(false); window.location.reload(); }} // Reload to refresh profile context in App
+           />
        )}
 
        <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
@@ -336,13 +458,19 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                    <Clock size={16} /> Você tem um serviço ativo. Finalize-o para aceitar novos.
                </div>
            )}
-           {availableJobs.length === 0 && <p className="text-slate-500 text-center py-4">Nenhum serviço disponível.</p>}
+           {availableJobs.length === 0 && (
+               <div className="text-center py-10 opacity-60">
+                   <p className="text-slate-500">Nenhum serviço disponível para sua especialidade no momento.</p>
+                   <p className="text-xs text-slate-400 mt-2">Suas especialidades: {user.specialty}</p>
+               </div>
+           )}
            
            {availableJobs.map(job => (
              <div key={job.id} className={`bg-white p-5 rounded-xl border shadow-sm transition-shadow ${job.workerId === user.id ? 'border-brand-blue ring-1 ring-brand-blue' : 'border-slate-200'}`}>
                <div className="flex justify-between items-start mb-2">
                  <div>
                    {job.workerId === user.id && <span className="bg-brand-blue text-white text-[10px] px-2 py-0.5 rounded-full mb-1 inline-block">Proposta Direta</span>}
+                   {job.category && <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full mb-1 inline-block mr-2 uppercase font-bold">{job.category}</span>}
                    <h3 className="font-bold text-lg text-slate-900">{job.title}</h3>
                    <p className="text-sm text-slate-600 mt-1">{job.description}</p>
                  </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, ServiceCategory } from './types';
 import { Mascot } from './components/Mascot';
 import { Button } from './components/Button';
-import { LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, Store } from 'lucide-react';
+import { LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, Store, Edit, Check, AlertTriangle } from 'lucide-react';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientDashboard } from './pages/ClientDashboard';
 import { WorkerDashboard } from './pages/WorkerDashboard';
@@ -48,6 +48,201 @@ const validateEmail = (email: string): { valid: boolean; msg?: string } => {
 
 const inputClass = "w-full px-4 py-3 bg-slate-50 border-0 rounded-2xl text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-brand-orange outline-none transition-all shadow-sm";
 
+// Modal Obrigatório para Completar Cadastro (Google Login)
+const CompleteProfileModal: React.FC<{ user: User, onUpdate: () => void }> = ({ user, onUpdate }) => {
+    const [phone, setPhone] = useState(user.phone || '');
+    const [cpf, setCpf] = useState(user.cpf || '');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleSave = async () => {
+        if (phone.length < 14) return setError("Digite um celular válido com DDD.");
+        if (cpf.length < 14) return setError("Digite um CPF válido.");
+        setError('');
+        setLoading(true);
+
+        try {
+            // Verificar unicidade do CPF
+            const { data: existingCpf } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('cpf', cpf)
+                .neq('id', user.id) // Ignora o próprio usuário
+                .maybeSingle();
+
+            if (existingCpf) {
+                throw new Error("Este CPF já está cadastrado em outra conta.");
+            }
+
+            const { error: updateError } = await supabase
+                .from('profiles')
+                .update({ phone, cpf })
+                .eq('id', user.id);
+
+            if (updateError) throw updateError;
+
+            onUpdate();
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-brand-orange/90 z-[150] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative text-center">
+                <div className="w-16 h-16 bg-orange-100 text-brand-orange rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slow">
+                    <AlertTriangle size={32} />
+                </div>
+                <h2 className="text-2xl font-black text-slate-800 mb-2">Falta pouco!</h2>
+                <p className="text-slate-500 text-sm mb-6 leading-relaxed">
+                    Para garantir a segurança da plataforma, precisamos que você complete seu cadastro com CPF e Celular.
+                </p>
+
+                <div className="space-y-4 text-left">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Celular (WhatsApp)</label>
+                        <input 
+                            className={inputClass} 
+                            value={phone} 
+                            onChange={e => setPhone(maskPhone(e.target.value))} 
+                            placeholder="(00) 00000-0000"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">CPF</label>
+                        <input 
+                            className={inputClass} 
+                            value={cpf} 
+                            onChange={e => setCpf(maskCpf(e.target.value))} 
+                            placeholder="000.000.000-00"
+                        />
+                    </div>
+                    
+                    {error && (
+                        <div className="bg-red-50 text-red-500 text-xs font-bold p-3 rounded-xl text-center">
+                            {error}
+                        </div>
+                    )}
+
+                    <Button fullWidth onClick={handleSave} disabled={loading} size="lg" className="rounded-2xl shadow-xl shadow-brand-orange/20">
+                        {loading ? 'Salvando...' : 'Concluir Cadastro'}
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Edit Profile Modal
+const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: () => void }> = ({ user, onClose, onUpdate }) => {
+    const [name, setName] = useState(user.name);
+    const [phone, setPhone] = useState(user.phone || '');
+    const [bio, setBio] = useState(user.bio || '');
+    const [specialties, setSpecialties] = useState<string[]>(user.specialty ? user.specialty.split(',').map(s=>s.trim()) : []);
+    const [allCategories, setAllCategories] = useState<ServiceCategory[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if(user.role === 'worker') {
+            supabase.from('service_categories').select('*').order('name').then(({data}) => {
+                if(data) setAllCategories(data.filter(c => c.name !== 'Outros'));
+            });
+        }
+    }, [user.role]);
+
+    const toggleSpecialty = (catName: string) => {
+        setSpecialties(prev => {
+            if(prev.includes(catName)) return prev.filter(c => c !== catName);
+            if(prev.length >= 3) return prev;
+            return [...prev, catName];
+        });
+    };
+
+    const handleSave = async () => {
+        setLoading(true);
+        const updates: any = {
+            full_name: name,
+            phone: phone,
+            bio: bio
+        };
+
+        if(user.role === 'worker') {
+            updates.specialty = specialties.join(', ');
+        }
+
+        const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
+        
+        if(!error) {
+            onUpdate();
+            onClose();
+        } else {
+            alert("Erro ao atualizar: " + error.message);
+        }
+        setLoading(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-xl text-slate-800">Editar Perfil</h3>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><X size={24}/></button>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Nome Completo</label>
+                        <input className={inputClass} value={name} onChange={e => setName(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Celular</label>
+                        <input className={inputClass} value={phone} onChange={e => setPhone(maskPhone(e.target.value))} />
+                    </div>
+                    
+                    {user.role === 'worker' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                                Especialidades (Máx. 3)
+                            </label>
+                            <div className="bg-orange-50 text-orange-800 text-xs p-3 rounded-xl mb-3 font-medium">
+                                Você pode marcar até 3 especialidades, mas recomendamos apenas uma para que você seja melhor avaliado.
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
+                                {allCategories.map(cat => (
+                                    <button 
+                                        key={cat.id}
+                                        onClick={() => toggleSpecialty(cat.name)}
+                                        className={`p-2 rounded-lg text-xs font-bold text-left flex items-center justify-between border transition-all ${
+                                            specialties.includes(cat.name) 
+                                            ? 'bg-brand-blue text-white border-brand-blue' 
+                                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                                        } ${(!specialties.includes(cat.name) && specialties.length >= 3) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        disabled={!specialties.includes(cat.name) && specialties.length >= 3}
+                                    >
+                                        {cat.name}
+                                        {specialties.includes(cat.name) && <Check size={14}/>}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Bio / Sobre Você</label>
+                        <textarea className={inputClass} value={bio} onChange={e => setBio(e.target.value)} rows={3} />
+                    </div>
+
+                    <Button fullWidth onClick={handleSave} disabled={loading} size="lg">
+                        {loading ? 'Salvando...' : 'Salvar Alterações'}
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[100] p-4 animate-fade-in backdrop-blur-sm">
         <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-slide-up sm:animate-fade-in">
@@ -91,17 +286,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
     const [regPhone, setRegPhone] = useState('');
     const [regCpf, setRegCpf] = useState('');
     const [regPass, setRegPass] = useState('');
-    const [regSpecialty, setRegSpecialty] = useState('');
-
-    const [categories, setCategories] = useState<ServiceCategory[]>([]);
-
-    useEffect(() => {
-        if(isRegistering && activeTab === 'worker') {
-            supabase.from('service_categories').select('*').then(({data}) => {
-                if(data) setCategories(data);
-            });
-        }
-    }, [isRegistering, activeTab]);
+    // REMOVIDO regSpecialty do formulário inicial
 
     const handleGoogleLogin = async () => {
         setLoading(true);
@@ -152,7 +337,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                 avatar_url: meta.avatar_url || meta.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authData.user.email}`,
                 phone: meta.phone || '',
                 cpf: meta.cpf || '',
-                specialty: meta.specialty || ''
+                specialty: '' // Specialty starts empty
             };
             await supabase.from('profiles').insert(newProfile);
             profile = newProfile;
@@ -167,7 +352,14 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             currentRole = 'admin';
         } else if (!allowedRoles.includes(activeTab)) {
              await supabase.auth.signOut();
-             throw new Error(`Esta conta não está habilitada para entrar como ${activeTab === 'client' ? 'Cliente' : 'Profissional'}.`);
+             // Determine which role they actually have to show a better message
+             let actualRoleName = 'Desconhecido';
+             if (allowedRoles.includes('client')) actualRoleName = 'Cliente';
+             else if (allowedRoles.includes('worker')) actualRoleName = 'Profissional';
+             else if (allowedRoles.includes('partner')) actualRoleName = 'Parceiro';
+             else if (allowedRoles.includes('admin')) actualRoleName = 'Admin';
+
+             throw new Error(`Esta conta está cadastrada como ${actualRoleName}.`);
         }
   
         onLogin({
@@ -192,12 +384,18 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
 
       setLoading(true);
       try {
+        // Verificar unicidade do CPF se fornecido
+        if (activeTab === 'worker' && regCpf) {
+            const { data: existing } = await supabase.from('profiles').select('id').eq('cpf', regCpf).maybeSingle();
+            if (existing) throw new Error("CPF já cadastrado em outra conta.");
+        }
+
         const metaData = { 
             full_name: regName, 
             role: activeTab, 
             phone: regPhone, 
             cpf: activeTab === 'worker' ? regCpf : null,
-            specialty: activeTab === 'worker' ? regSpecialty : null
+            specialty: null // Always null on register
         };
         const { error } = await supabase.auth.signUp({ email: regEmail, password: regPass, options: { data: metaData } });
         if (error) throw error;
@@ -205,7 +403,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
       } catch (err: any) { setError(err.message); } finally { setLoading(false); }
     };
   
-    const toggleMode = () => { setIsRegistering(!isRegistering); setError(''); setRegName(''); setRegEmail(''); setRegPhone(''); setRegCpf(''); setRegPass(''); setRegSpecialty(''); };
+    const toggleMode = () => { setIsRegistering(!isRegistering); setError(''); setRegName(''); setRegEmail(''); setRegPhone(''); setRegCpf(''); setRegPass(''); };
   
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 selection:bg-orange-100 overflow-x-hidden">
@@ -227,7 +425,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                     <input type="email" value={email} onChange={e=>setEmail(e.target.value)} className={inputClass} placeholder="Email" required />
                     <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} placeholder="Senha" required />
-                    {error && <p className="text-red-500 text-sm font-bold text-center">{error}</p>}
+                    {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-2 rounded-lg">{error}</p>}
                     <Button type="submit" fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200">{loading ? 'Entrando...' : 'Entrar Agora'}</Button>
                 </form>
                 
@@ -255,12 +453,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                  <input value={regPhone} onChange={e=>setRegPhone(maskPhone(e.target.value))} className={inputClass} placeholder="Celular" required />
                  {activeTab === 'worker' && <input value={regCpf} onChange={e=>setRegCpf(maskCpf(e.target.value))} className={inputClass} placeholder="CPF" required />}
                  
-                 {activeTab === 'worker' && (
-                     <select value={regSpecialty} onChange={e=>setRegSpecialty(e.target.value)} className={inputClass} required>
-                         <option value="">Selecione sua Especialidade</option>
-                         {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                     </select>
-                 )}
+                 {/* Especialidade Removida daqui */}
 
                  <input type="password" value={regPass} onChange={e=>setRegPass(e.target.value)} className={inputClass} placeholder="Senha" required />
                  {error && <p className="text-red-500 text-sm font-bold text-center">{error}</p>}
@@ -277,56 +470,50 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'partners'>('dashboard');
+  
+  // State for mandatory profile completion (Google Login)
+  const [showCompleteProfile, setShowCompleteProfile] = useState(false);
+
+  const fetchProfileAndSetUser = async (userId: string) => {
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    if (profile) {
+        const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
+        setCurrentUser({
+            id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
+            points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
+            rating: profile.rating, phone: profile.phone, cpf: profile.cpf, specialty: profile.specialty, bio: profile.bio
+        });
+
+        // Trigger Mandatory Completion if missing phone or CPF
+        if (!profile.phone || !profile.cpf) {
+            setShowCompleteProfile(true);
+        } else {
+            setShowCompleteProfile(false);
+        }
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
     
-    // Função unificada para buscar perfil
-    const fetchProfileAndSetUser = async (userId: string) => {
-        try {
-            const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-            
-            if (error) {
-                console.error("Erro ao buscar perfil:", error);
-                // Não lançamos erro aqui para não quebrar o fluxo, apenas logamos
-            }
-
-            if (profile && isMounted) {
-                const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
-                setCurrentUser({
-                    id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
-                    points: profile.points, avatar: profile.avatar_url, completedJobs: profile.completed_jobs,
-                    rating: profile.rating, phone: profile.phone, cpf: profile.cpf
-                });
-            }
-        } catch (error) {
-            console.error("Erro fatal no fetch profile:", error);
-        } finally {
-            if (isMounted) setIsLoading(false);
-        }
-    };
-
     const init = async () => {
-      // 1. Verifica sessão inicial (Aqui SIM mostramos loading)
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
           await fetchProfileAndSetUser(session.user.id);
-      } else {
-          if(isMounted) setIsLoading(false);
       }
+      if (isMounted) setIsLoading(false);
 
-      // 2. Escuta mudanças (Aqui NÃO mostramos loading se for apenas atualização)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (event === 'SIGNED_IN' && session?.user && isMounted) {
-              // AQUI ESTAVA O ERRO: Removemos o setIsLoading(true)
-              // O app vai atualizar os dados em silêncio, sem travar a tela.
               await fetchProfileAndSetUser(session.user.id);
           } else if (event === 'SIGNED_OUT' && isMounted) {
               setCurrentUser(null);
               setIsLoading(false);
+              setShowCompleteProfile(false);
           }
       });
 
@@ -346,15 +533,31 @@ export default function App() {
 
   if (!currentUser) return <LoginPage onLogin={setCurrentUser} />;
 
+  // Header Logic
+  const getRoleBadge = (role: UserRole) => {
+      switch(role) {
+          case 'admin': return { label: 'Admin', bg: 'bg-red-100 text-red-600' };
+          case 'partner': return { label: 'Parceiro', bg: 'bg-purple-100 text-purple-600' };
+          case 'worker': return { label: 'Profissional', bg: 'bg-blue-100 text-blue-600' };
+          default: return { label: 'Cliente', bg: 'bg-orange-100 text-brand-orange' };
+      }
+  };
+
+  const roleInfo = getRoleBadge(currentUser.role);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-orange-100 overflow-x-hidden w-full">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentPage('dashboard')}>
-            <img src="https://i.ibb.co/Zpwrnpr9/ROSTO-MASCOTE-TRANSPARENTE.png" className="w-9 h-9" />
-            <div className="flex flex-col -space-y-1">
-                <span className="font-black text-brand-orange text-sm tracking-tighter">MÃO DE OBRA</span>
-                <span className="text-[9px] font-bold text-slate-400 uppercase">{currentUser.role}</span>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentPage('dashboard')}>
+            <img src="https://i.ibb.co/Zpwrnpr9/ROSTO-MASCOTE-TRANSPARENTE.png" className="w-10 h-10 object-contain" />
+            <div className="flex flex-col">
+                <span className="font-black text-brand-orange text-lg leading-tight tracking-tight truncate max-w-[150px] sm:max-w-none">
+                    {currentUser.name}
+                </span>
+                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>
+                    {roleInfo.label}
+                </span>
             </div>
           </div>
           
@@ -382,6 +585,12 @@ export default function App() {
                             <p className="font-black text-slate-800 text-sm truncate">{currentUser.name}</p>
                             <p className="text-[10px] text-slate-400 font-bold truncate">{currentUser.email}</p>
                         </div>
+                        <button 
+                            onClick={() => { setShowEditProfile(true); setShowProfileMenu(false); }}
+                            className="w-full text-left px-5 py-3 text-sm text-slate-600 font-bold hover:bg-slate-50 flex items-center gap-2"
+                        >
+                            <Edit size={16} /> Editar Perfil
+                        </button>
                         <button 
                             onClick={async () => {
                                 await supabase.auth.signOut();
@@ -411,6 +620,22 @@ export default function App() {
       </main>
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      
+      {showEditProfile && (
+          <EditProfileModal 
+            user={currentUser} 
+            onClose={() => setShowEditProfile(false)} 
+            onUpdate={() => fetchProfileAndSetUser(currentUser.id)} 
+          />
+      )}
+
+      {/* Mandatory Completion for Google Logins */}
+      {showCompleteProfile && (
+          <CompleteProfileModal 
+             user={currentUser} 
+             onUpdate={() => fetchProfileAndSetUser(currentUser.id)} 
+          />
+      )}
     </div>
   );
 }
