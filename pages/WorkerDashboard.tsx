@@ -132,6 +132,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const [showCameraPermission, setShowCameraPermission] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -149,6 +150,14 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           return () => clearTimeout(timer);
       }
   }, [toast]);
+
+  // Race Condition Fix: Effect to attach stream when video element is ready
+  useEffect(() => {
+    if (cameraActive && mediaStream && videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.play().catch(e => console.error("Error playing video:", e));
+    }
+  }, [cameraActive, mediaStream]);
 
   const showToast = (msg: string, type: 'success' | 'error') => setToast({ msg, type });
 
@@ -231,25 +240,20 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           const stream = await navigator.mediaDevices.getUserMedia({ 
               video: { facingMode: "environment" } 
           });
-          setupStream(stream);
+          setMediaStream(stream);
+          setCameraActive(true);
+          setShowCameraPermission(false);
       } catch (err) {
           // Attempt 2: Fallback to any camera
           try {
               const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-              setupStream(stream);
+              setMediaStream(stream);
+              setCameraActive(true);
+              setShowCameraPermission(false);
           } catch (err2) {
               alert("Erro ao acessar câmera. Verifique permissões.");
               setShowCameraPermission(false);
           }
-      }
-  };
-
-  const setupStream = (stream: MediaStream) => {
-      setCameraActive(true);
-      setShowCameraPermission(false);
-      if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
       }
   };
 
@@ -269,11 +273,10 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   };
 
   const stopCamera = () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-          const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
-          tracks.forEach(track => track.stop());
-          videoRef.current.srcObject = null;
+      if (mediaStream) {
+          mediaStream.getTracks().forEach(track => track.stop());
       }
+      setMediaStream(null);
       setCameraActive(false);
   };
 
