@@ -163,6 +163,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
 
   const fetchData = async () => {
     // 1. Available Open Jobs
+    // IMPORTANT: 'client:client_id(full_name)' requires a Foreign Key between jobs.client_id and profiles.id in Supabase
     const { data: openData } = await supabase
         .from('jobs')
         .select('*, client:client_id(full_name)')
@@ -305,7 +306,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           showToast(error.message, 'error');
           setLoadingAction(false);
       } else {
-          // Notify Client & Optimistic Update
+          // Notify Client
           if (jobToAccept) {
              await supabase.from('notifications').insert({
                  user_id: jobToAccept.clientId,
@@ -328,8 +329,12 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           }
 
           showToast('Serviço aceito com sucesso!', 'success');
-          setLoadingAction(false);
           setActiveTab('my_jobs'); // This switches view to 'My Jobs'
+          
+          // CRITICAL: Fetch data from server to ensure synchronization in case optimistic update missed something
+          await fetchData();
+          
+          setLoadingAction(false);
       }
   };
 

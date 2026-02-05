@@ -3,7 +3,7 @@ import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
 import { 
     Users, Briefcase, Store, Search, Trash2, Edit, 
-    X, BellRing, Send, Minus, Plus, ChevronRight, CheckSquare, Square 
+    X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign 
 } from 'lucide-react';
 import { Partner } from '../types';
 
@@ -157,6 +157,12 @@ export const AdminDashboard: React.FC = () => {
       fetchData();
   };
 
+  const handleDeleteJob = async (id: string) => {
+      if(!confirm("Tem certeza que deseja apagar este serviço?")) return;
+      await supabase.from('jobs').delete().eq('id', id);
+      fetchData();
+  };
+
   const handleSendNotification = async () => {
       if(!notifTitle || !notifMsg) return alert("Preencha título e mensagem");
       
@@ -171,7 +177,6 @@ export const AdminDashboard: React.FC = () => {
 
       try {
         const targetUsers = users.filter(u => {
-            // Safety check for allowed_roles being null
             return u.allowed_roles && Array.isArray(u.allowed_roles) && u.allowed_roles.some((r: string) => rolesToTarget.includes(r));
         });
 
@@ -260,7 +265,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
       )}
 
-      {/* USERS LIST - MOBILE OPTIMIZED */}
+      {/* USERS LIST */}
       {activeTab === 'users' && (
           <div className="space-y-4 animate-fade-in">
               <div className="relative">
@@ -305,7 +310,73 @@ export const AdminDashboard: React.FC = () => {
           </div>
       )}
 
-      {/* PARTNERS TAB - LIST ONLY */}
+      {/* JOBS TAB - ADICIONADO AQUI */}
+      {activeTab === 'jobs' && (
+          <div className="space-y-4 animate-fade-in">
+              <div className="bg-blue-50 text-blue-800 p-4 rounded-2xl mb-4 border border-blue-100">
+                  <h3 className="font-bold flex items-center gap-2 text-sm"><Briefcase size={16}/> Gerenciar Serviços</h3>
+                  <p className="text-xs mt-1">Veja todos os serviços cadastrados na plataforma. Use com cuidado a opção de deletar.</p>
+              </div>
+
+              {jobs.length === 0 && <div className="text-center p-8 text-slate-400 bg-white rounded-2xl">Nenhum serviço registrado.</div>}
+
+              <div className="grid grid-cols-1 gap-4">
+                  {jobs.map(job => (
+                      <div key={job.id} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 relative">
+                          <div className="flex justify-between items-start mb-2">
+                              <div>
+                                  <h4 className="font-black text-slate-800 text-lg">{job.title}</h4>
+                                  <p className="text-xs text-slate-500 line-clamp-2">{job.description}</p>
+                              </div>
+                              <div className="text-right">
+                                  <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                      job.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                      job.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                                      job.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
+                                      'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                      {job.status === 'waiting_verification' ? 'Aguardando' : 
+                                       job.status === 'in_progress' ? 'Em Andamento' :
+                                       job.status === 'completed' ? 'Concluído' :
+                                       job.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                                  </span>
+                              </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 mt-4 bg-slate-50 p-3 rounded-xl">
+                              <div className="flex flex-col">
+                                  <span className="font-bold uppercase text-[10px] text-slate-400">Cliente</span>
+                                  <span>{job.client?.full_name || 'Desconhecido'}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="font-bold uppercase text-[10px] text-slate-400">Profissional</span>
+                                  <span>{job.worker?.full_name || '—'}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="font-bold uppercase text-[10px] text-slate-400">Data</span>
+                                  <span className="flex items-center gap-1"><Calendar size={10}/> {new Date(job.created_at).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="font-bold uppercase text-[10px] text-slate-400">Valor</span>
+                                  <span className="flex items-center gap-1 text-green-600 font-bold"><DollarSign size={10}/> R$ {job.price || 'A combinar'}</span>
+                              </div>
+                          </div>
+
+                          <div className="mt-4 flex justify-end">
+                                <button 
+                                    onClick={() => handleDeleteJob(job.id)}
+                                    className="text-red-400 hover:text-red-600 text-xs font-bold flex items-center gap-1 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors"
+                                >
+                                    <Trash2 size={14}/> Apagar Serviço
+                                </button>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* PARTNERS TAB */}
       {activeTab === 'partners' && (
           <div className="space-y-4 animate-fade-in">
               <div className="bg-brand-orange/10 p-4 rounded-2xl border border-brand-orange/20">
