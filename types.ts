@@ -66,6 +66,7 @@ export interface Job {
   // Business Rules
   estimatedHours: number; // 1, 2, 4, 8
   pointsAwarded?: number;
+  acceptedAt?: string; // quando o profissional aceitou (para auditoria)
 
   // Completion Fields
   rating?: number;

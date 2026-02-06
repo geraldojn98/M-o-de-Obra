@@ -15,7 +15,9 @@ ALTER TABLE public.jobs
   ADD COLUMN IF NOT EXISTS audit_data JSONB,
   ADD COLUMN IF NOT EXISTS points_awarded INTEGER DEFAULT 0,
   ADD COLUMN IF NOT EXISTS estimated_hours DECIMAL(10,1) DEFAULT 1,
-  ADD COLUMN IF NOT EXISTS admin_verdict TEXT CHECK (admin_verdict IN ('pending', 'absolved', 'punished'));
+  ADD COLUMN IF NOT EXISTS admin_verdict TEXT CHECK (admin_verdict IN ('pending', 'absolved', 'punished')),
+  ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE,
+  ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
 
 -- Tabela de recursos de punição (tréplicas)
 CREATE TABLE IF NOT EXISTS public.punishment_appeals (

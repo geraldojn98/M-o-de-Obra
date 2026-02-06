@@ -163,7 +163,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
         const parsedJobs = myData.map((j:any) => ({
             id: j.id, title: j.title, description: j.description, clientName: j.client?.full_name || 'Cliente',
             clientId: j.client_id, status: j.status, price: j.price || 0, date: j.created_at, city: j.city, estimatedHours: j.estimated_hours || 1,
-            isAudited: j.is_audited
+            isAudited: j.is_audited, acceptedAt: j.accepted_at
         }));
         setMyJobs(parsedJobs);
         const active = parsedJobs.find((j: any) => j.status === 'in_progress' || j.status === 'waiting_verification');
@@ -204,7 +204,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
           return;
       }
 
-      const { error } = await supabase.from('jobs').update({ worker_id: user.id, status: 'in_progress' }).eq('id', jobId);
+      const { error } = await supabase.from('jobs').update({ worker_id: user.id, status: 'in_progress', accepted_at: new Date().toISOString() }).eq('id', jobId);
       
       if (error) { showToast(error.message, 'error'); setLoadingAction(false); }
       else {
@@ -220,20 +220,43 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
       if (!job) return;
 
       if (!auditAnswers) {
-        const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0,0,0,0);
-        const today = new Date(); today.setHours(0,0,0,0);
-        
-        const { data: consecutiveJobs } = await supabase.from('jobs')
+        let needAudit = false;
+
+        // 1) Serviço terminado antes do prazo estipulado (tempo desde aceite < estimated_hours)
+        if (job.acceptedAt && job.estimatedHours) {
+          const acceptedMs = new Date(job.acceptedAt).getTime();
+          const elapsedHours = (Date.now() - acceptedMs) / (1000 * 60 * 60);
+          if (elapsedHours < job.estimatedHours) needAudit = true;
+        }
+
+        // 2) Mais de um serviço com mesmo cliente e mesmo profissional no mesmo dia
+        if (!needAudit) {
+          const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+          const { data: jobsTodaySame } = await supabase.from('jobs')
+            .select('id')
+            .eq('client_id', job.clientId)
+            .eq('worker_id', user.id)
+            .gte('created_at', startOfDay.toISOString());
+          if (jobsTodaySame && jobsTodaySame.length > 1) needAudit = true;
+        }
+
+        // 3) Mesmo cliente e mesmo profissional em dois dias consecutivos
+        if (!needAudit) {
+          const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0, 0, 0, 0);
+          const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+          const { data: consecutiveJobs } = await supabase.from('jobs')
             .select('id')
             .eq('client_id', job.clientId)
             .eq('worker_id', user.id)
             .gte('created_at', yesterday.toISOString())
-            .lt('created_at', today.toISOString());
-        
-        if (consecutiveJobs && consecutiveJobs.length > 0) {
-            setModalType('audit'); 
-            setLoadingAction(false);
-            return;
+            .lt('created_at', todayStart.toISOString());
+          if (consecutiveJobs && consecutiveJobs.length > 0) needAudit = true;
+        }
+
+        if (needAudit) {
+          setModalType('audit');
+          setLoadingAction(false);
+          return;
         }
       }
 

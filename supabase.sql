@@ -43,6 +43,8 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_audited BOOLEAN DEFAULT FALSE;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS audit_data JSONB DEFAULT '{}'::jsonb;
 -- Novo: Veredicto do Admin para a Lista Vermelha
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_verdict TEXT CHECK (admin_verdict IN ('pending', 'absolved', 'punished'));
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
 
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS suspicious_flag BOOLEAN DEFAULT FALSE; 
 -- Novo: Controle de Banimento/Punição

@@ -4,7 +4,7 @@ import { Button } from '../components/Button';
 import { 
     Users, Briefcase, Store, Search, Trash2, Edit, 
     X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign, Lightbulb,
-    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText
+    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText, Clock
 } from 'lucide-react';
 import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 
@@ -471,7 +471,11 @@ export const AdminDashboard: React.FC = () => {
                                   <div className="flex justify-between items-start mb-4">
                                       <div>
                                           <h4 className="font-black text-slate-800 text-lg">{job.title}</h4>
-                                          <p className="text-xs text-slate-500 flex items-center gap-1 mt-1"><Calendar size={12}/> {new Date(job.created_at).toLocaleDateString()}</p>
+                                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
+                                              <span className="flex items-center gap-1"><Clock size={12}/> <strong>Aberto:</strong> {job.created_at ? new Date(job.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</span>
+                                              <span className="flex items-center gap-1"><Clock size={12}/> <strong>Aceito:</strong> {job.accepted_at ? new Date(job.accepted_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</span>
+                                              <span className="flex items-center gap-1"><Clock size={12}/> <strong>Concluído:</strong> {job.completed_at ? new Date(job.completed_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</span>
+                                          </div>
                                       </div>
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl">

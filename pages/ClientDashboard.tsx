@@ -260,7 +260,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error');
     setLoading(true);
     const job = selectedItem;
-    const updates: any = { status: 'completed', rating: ratingScore, duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo' };
+    const updates: any = { status: 'completed', rating: ratingScore, duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', completed_at: new Date().toISOString() };
     if (auditAnswers) {
       updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 };
       await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', user.id);
