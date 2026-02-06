@@ -3,11 +3,12 @@ import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
 import { 
     Users, Briefcase, Store, Search, Trash2, Edit, 
-    X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign, Lightbulb 
+    X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign, Lightbulb,
+    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText
 } from 'lucide-react';
-import { Partner, CategorySuggestion } from '../types';
+import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 
-type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions';
+type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
 
 const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => void }> = ({ user, onClose, onSave }) => {
     const [name, setName] = useState(user.full_name || '');
@@ -136,6 +137,10 @@ export const AdminDashboard: React.FC = () => {
       partner: false
   });
 
+  // Lista Vermelha: jobs auditados não resolvidos
+  const [redlistJobs, setRedlistJobs] = useState<any[]>([]);
+  const [appeals, setAppeals] = useState<any[]>([]);
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -149,12 +154,92 @@ export const AdminDashboard: React.FC = () => {
     // Suggestions
     const { data: s } = await supabase.from('category_suggestions').select('*, user:user_id(full_name)').order('created_at', {ascending: false});
 
+    // Lista Vermelha: is_audited = true e ainda não resolvido
+    const { data: red } = await supabase.from('jobs')
+      .select('*, client:client_id(full_name), worker:worker_id(full_name)')
+      .eq('is_audited', true)
+      .order('created_at', { ascending: false });
+    if (red) setRedlistJobs(red.filter((j: any) => j.admin_verdict !== 'absolved' && j.admin_verdict !== 'punished'));
+
+    // Tréplicas (recursos de punição)
+    const { data: appData } = await supabase.from('punishment_appeals')
+      .select('*, user:user_id(full_name), job:job_id(title, client_id, worker_id)')
+      .order('created_at', { ascending: false });
+    if (appData) setAppeals(appData);
+
     if(u) setUsers(u);
     if(j) setJobs(j);
     if(p) setPartners(p);
     if(s) setSuggestions(s.map((i:any) => ({ id: i.id, userId: i.user_id, userName: i.user?.full_name, suggestion: i.suggestion, createdAt: i.created_at })));
     
     setLoading(false);
+  };
+
+  const handleAbsolve = async (job: any) => {
+    if (!confirm('Absolver este caso? A flag de suspeita será removida e os pontos validados.')) return;
+    setLoading(true);
+    try {
+      await supabase.from('profiles').update({ suspicious_flag: false }).eq('id', job.client_id);
+      if (job.worker_id) await supabase.from('profiles').update({ suspicious_flag: false }).eq('id', job.worker_id);
+      const pointsToAward = (job.estimated_hours || 1) * POINTS_RULES.WORKER_PER_HOUR;
+      await supabase.from('jobs').update({
+        admin_verdict: 'absolved',
+        points_awarded: pointsToAward
+      }).eq('id', job.id);
+      if (job.worker_id) {
+        const { data: prof } = await supabase.from('profiles').select('points').eq('id', job.worker_id).single();
+        if (prof) await supabase.from('profiles').update({ points: (prof.points || 0) + pointsToAward }).eq('id', job.worker_id);
+      }
+      fetchData();
+    } catch (e: any) {
+      alert('Erro: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePunish = async (job: any) => {
+    if (!confirm('Punir/Banir por 7 dias? Cliente e profissional não poderão criar/aceitar serviços e os pontos deste serviço serão zerados.')) return;
+    setLoading(true);
+    try {
+      const until = new Date();
+      until.setDate(until.getDate() + 7);
+      await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.client_id);
+      if (job.worker_id) await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.worker_id);
+      await supabase.from('jobs').update({ admin_verdict: 'punished', points_awarded: 0 }).eq('id', job.id);
+      fetchData();
+    } catch (e: any) {
+      alert('Erro: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppealApprove = async (appeal: any) => {
+    if (!confirm('Aprovar recurso? O usuário voltará a poder usar o app.')) return;
+    setLoading(true);
+    try {
+      await supabase.from('profiles').update({ active: true, punishment_until: null }).eq('id', appeal.user_id);
+      await supabase.from('punishment_appeals').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', appeal.id);
+      fetchData();
+    } catch (e: any) {
+      alert('Erro: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppealReject = async (appeal: any) => {
+    if (!confirm('Rejeitar recurso? O usuário permanecerá banido até o fim do período.')) return;
+    setLoading(true);
+    try {
+      await supabase.from('punishment_appeals').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', appeal.id);
+      fetchData();
+    } catch (e: any) {
+      alert('Erro: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeletePartner = async (id: string) => {
@@ -220,6 +305,8 @@ export const AdminDashboard: React.FC = () => {
                       { id: 'overview', label: 'Início', icon: ChevronRight },
                       { id: 'users', label: 'Usuários', icon: Users },
                       { id: 'jobs', label: 'Serviços', icon: Briefcase },
+                      { id: 'redlist', label: 'Lista Vermelha', icon: ShieldAlert },
+                      { id: 'replies', label: 'Tréplicas', icon: FileText },
                       { id: 'partners', label: 'Parceiros', icon: Store },
                       { id: 'suggestions', label: 'Sugestões', icon: Lightbulb },
                       { id: 'notifications', label: 'Avisos', icon: BellRing }
@@ -358,6 +445,91 @@ export const AdminDashboard: React.FC = () => {
                       </div>
                   ))}
               </div>
+          </div>
+      )}
+
+      {activeTab === 'redlist' && (
+          <div className="space-y-4 animate-fade-in">
+              <div className="bg-red-50 text-red-800 p-4 rounded-2xl border border-red-100 flex items-center gap-3">
+                  <ShieldAlert className="text-red-600" size={24} />
+                  <div>
+                      <h3 className="font-bold text-sm">Lista Vermelha – Auditoria Anti-Fraude</h3>
+                      <p className="text-xs mt-1">Casos com mesmo profissional + mesmo cliente em 2 dias consecutivos. Compare as respostas e decida.</p>
+                  </div>
+              </div>
+              {redlistJobs.length === 0 ? (
+                  <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-500">
+                      <AlertTriangle size={40} className="mx-auto mb-2 text-slate-300" />
+                      <p className="font-bold">Nenhuma atividade suspeita detectada</p>
+                  </div>
+              ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                      {redlistJobs.map((job: any) => {
+                          const ad = job.audit_data || {};
+                          return (
+                              <div key={job.id} className="bg-white p-5 rounded-3xl shadow-sm border border-red-100">
+                                  <div className="flex justify-between items-start mb-4">
+                                      <div>
+                                          <h4 className="font-black text-slate-800 text-lg">{job.title}</h4>
+                                          <p className="text-xs text-slate-500 flex items-center gap-1 mt-1"><Calendar size={12}/> {new Date(job.created_at).toLocaleDateString()}</p>
+                                      </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl">
+                                      <div><span className="font-bold uppercase text-[10px] text-slate-400">Cliente</span><p className="font-bold">{job.client?.full_name || '—'}</p></div>
+                                      <div><span className="font-bold uppercase text-[10px] text-slate-400">Profissional</span><p className="font-bold">{job.worker?.full_name || '—'}</p></div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-4 mb-4">
+                                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                          <p className="text-xs font-bold text-blue-700 uppercase mb-2">Respostas do Profissional</p>
+                                          <p className="text-xs text-slate-700"><span className="font-bold">Materiais:</span> {ad.worker_q1 || '—'}</p>
+                                          <p className="text-xs text-slate-700 mt-1"><span className="font-bold">Resultado:</span> {ad.worker_q2 || '—'}</p>
+                                      </div>
+                                      <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                                          <p className="text-xs font-bold text-brand-orange uppercase mb-2">Respostas do Cliente</p>
+                                          <p className="text-xs text-slate-700"><span className="font-bold">Materiais:</span> {ad.client_q1 || '—'}</p>
+                                          <p className="text-xs text-slate-700 mt-1"><span className="font-bold">Resultado:</span> {ad.client_q2 || '—'}</p>
+                                      </div>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white rounded-xl" onClick={() => handleAbsolve(job)} disabled={loading}><CheckCircle size={16} className="mr-1"/> Absolver</Button>
+                                      <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl" onClick={() => handlePunish(job)} disabled={loading}><Ban size={16} className="mr-1"/> Punir/Banir</Button>
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+              )}
+          </div>
+      )}
+
+      {activeTab === 'replies' && (
+          <div className="space-y-4 animate-fade-in">
+              <div className="bg-slate-100 text-slate-700 p-4 rounded-2xl border border-slate-200">
+                  <h3 className="font-bold flex items-center gap-2 text-sm"><FileText size={16}/> Tréplicas – Recursos de Punição</h3>
+                  <p className="text-xs mt-1">Usuários punidos podem recorrer. Aprove para reativar a conta ou rejeite para manter o banimento.</p>
+              </div>
+              {appeals.length === 0 ? (
+                  <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-500">Nenhum recurso pendente.</div>
+              ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                      {appeals.map((a: any) => (
+                          <div key={a.id} className="bg-white p-5 rounded-2xl border border-slate-100">
+                              <div className="flex justify-between items-start mb-2">
+                                  <span className="font-bold text-slate-800">{a.user?.full_name || 'Usuário'}</span>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${a.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : a.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{a.status === 'pending' ? 'Pendente' : a.status === 'approved' ? 'Aprovado' : 'Rejeitado'}</span>
+                              </div>
+                              <p className="text-xs text-slate-500 mb-2">Serviço: {a.job?.title || '—'}</p>
+                              <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg mb-3">{a.appeal_text}</p>
+                              {a.status === 'pending' && (
+                                  <div className="flex gap-2">
+                                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white rounded-xl" onClick={() => handleAppealApprove(a)} disabled={loading}><CheckCircle size={14} className="mr-1"/> Aprovar</Button>
+                                      <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl" onClick={() => handleAppealReject(a)} disabled={loading}>Rejeitar</Button>
+                                  </div>
+                              )}
+                          </div>
+                      ))}
+                  </div>
+              )}
           </div>
       )}
 

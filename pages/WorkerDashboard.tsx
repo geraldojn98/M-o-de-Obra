@@ -72,6 +72,11 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
+  const [appealModalOpen, setAppealModalOpen] = useState(false);
+  const [appealText, setAppealText] = useState('');
+  const [appealJobId, setAppealJobId] = useState<string | null>(null);
+  const isPunished = user.active === false && user.punishment_until && new Date(user.punishment_until) > new Date();
+
   const [showCameraPermission, setShowCameraPermission] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -167,6 +172,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   };
 
   const handleAcceptJob = async (jobId: string) => {
+      if (isPunished) return showToast("Sua conta está suspensa. Recorra à punição se achar injusto.", 'error');
       if (hasActiveJob) return showToast("Você tem um serviço ativo. Termine-o primeiro.", 'error');
       
       const jobToAccept = availableJobs.find(j => j.id === jobId);
@@ -251,6 +257,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
           isAudited = true;
           auditData = { worker_q1: auditAnswers.q1, worker_q2: auditAnswers.q2 };
           await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', user.id);
+          if (job.clientId) await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', job.clientId);
       }
 
       const updates: any = { 
@@ -288,12 +295,37 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   const confirmCancelJob = async () => { if (!selectedJobId || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoadingAction(true); const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', selectedJobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoadingAction(false); };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
 
+  const openAppealModal = async () => {
+    const { data: punishedJob } = await supabase.from('jobs').select('id').eq('worker_id', user.id).eq('admin_verdict', 'punished').limit(1).maybeSingle();
+    setAppealJobId(punishedJob?.id || null);
+    setAppealText('');
+    setAppealModalOpen(true);
+  };
+  const submitAppeal = async () => {
+    if (!appealText.trim()) return showToast('Descreva o que aconteceu.', 'error');
+    if (!appealJobId) return showToast('Não foi possível vincular ao serviço.', 'error');
+    setLoadingAction(true);
+    const { error } = await supabase.from('punishment_appeals').insert({ user_id: user.id, job_id: appealJobId, appeal_text: appealText.trim() });
+    if (error) showToast(error.message, 'error');
+    else { showToast('Recurso enviado. O admin analisará em breve.', 'success'); setAppealModalOpen(false); }
+    setLoadingAction(false);
+  };
+
   const currentActiveJobs = myJobs.filter(j => ['in_progress', 'waiting_verification'].includes(j.status));
   const historyJobs = myJobs.filter(j => ['completed', 'cancelled'].includes(j.status));
 
   return (
     <div className="space-y-6 relative">
        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+       {isPunished && (
+           <div className="bg-red-100 text-red-800 p-4 rounded-xl border border-red-200 flex flex-col sm:flex-row sm:items-center gap-3">
+               <div className="flex-1">
+                   <p className="font-bold">Conta temporariamente suspensa</p>
+                   <p className="text-xs">Você não pode aceitar serviços até {user.punishment_until ? new Date(user.punishment_until).toLocaleDateString() : ''}. Acha que foi um engano? Recorra.</p>
+               </div>
+               <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white rounded-xl shrink-0" onClick={openAppealModal}>Recorrer punição</Button>
+           </div>
+       )}
        
        {/* DAILY CAP BANNER */}
        {todayPoints >= POINTS_RULES.WORKER_DAILY_CAP && (
@@ -345,7 +377,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
                    <span>{job.clientName}</span>
                    {job.city && <span className="flex items-center gap-1"><MapPin size={10}/> {job.city}</span>}
                </div>
-               <Button fullWidth onClick={() => handleAcceptJob(job.id)} disabled={hasActiveJob || loadingAction}>{loadingAction ? 'Processando...' : (hasActiveJob ? 'Indisponível' : 'Aceitar Serviço')}</Button>
+               <Button fullWidth onClick={() => handleAcceptJob(job.id)} disabled={isPunished || hasActiveJob || loadingAction}>{loadingAction ? 'Processando...' : (isPunished ? 'Conta suspensa' : hasActiveJob ? 'Indisponível' : 'Aceitar Serviço')}</Button>
              </div>
            ))}
 
@@ -466,6 +498,16 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
            </div>
        )}
 
+       {appealModalOpen && (
+           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+               <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
+                   <h3 className="text-lg font-bold text-slate-800 mb-2">Recorrer punição</h3>
+                   <p className="text-sm text-slate-600 mb-4">Descreva o que aconteceu. Nossa equipe analisará seu recurso.</p>
+                   <textarea className="w-full p-3 bg-slate-100 rounded-lg text-sm mb-4 outline-none focus:ring-2 focus:ring-red-200" placeholder="Sua justificativa..." rows={4} value={appealText} onChange={e => setAppealText(e.target.value)} />
+                   <div className="flex gap-2"><Button variant="outline" fullWidth onClick={() => setAppealModalOpen(false)}>Cancelar</Button><Button fullWidth onClick={submitAppeal} disabled={loadingAction}>Enviar recurso</Button></div>
+               </div>
+           </div>
+       )}
        {activeChatJobId && <ChatWindow jobId={activeChatJobId} currentUser={user} otherUserName={chatPartnerName} onClose={() => setActiveChatJobId(null)} />}
     </div>
   );

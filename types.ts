@@ -22,8 +22,10 @@ export interface User {
   latitude?: number;
   longitude?: number;
 
-  // Security
+  // Security / Anti-fraud
   suspicious_flag?: boolean;
+  active?: boolean;
+  punishment_until?: string | null;
 }
 
 export interface ServiceCategory {

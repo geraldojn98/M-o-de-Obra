@@ -630,7 +630,8 @@ export default function App() {
             id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
             points: profile.points, avatar: profile.avatar_url || DEFAULT_AVATAR, completedJobs: profile.completed_jobs,
             rating: profile.rating, phone: profile.phone, cpf: profile.cpf, specialty: profile.specialty, bio: profile.bio,
-            city: profile.city, state: profile.state, latitude: profile.latitude, longitude: profile.longitude
+            city: profile.city, state: profile.state, latitude: profile.latitude, longitude: profile.longitude,
+            suspicious_flag: profile.suspicious_flag, active: profile.active !== false, punishment_until: profile.punishment_until
         };
         setCurrentUser(userObj);
 

@@ -92,6 +92,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  const [appealModalOpen, setAppealModalOpen] = useState(false);
+  const [appealText, setAppealText] = useState('');
+  const [appealJobId, setAppealJobId] = useState<string | null>(null);
+  const isPunished = user.active === false && user.punishment_until && new Date(user.punishment_until) > new Date();
+
   useEffect(() => {
     fetchData();
   }, [user.id, activeTab]);
@@ -202,6 +207,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
 
   const handlePostJob = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPunished) return showToast('Sua conta está suspensa. Recorra à punição se achar injusto.', 'error');
     setLoading(true);
 
     let finalCategoryString = '';
@@ -250,7 +256,25 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   // ... (Other handlers unchanged: confirmHireDirect, confirmRating, processCompletion, modals)
   const confirmHireDirect = async () => { if (!selectedItem || !hireDescription.trim()) return showToast("Descreva o serviço.", 'error'); setLoading(true); const worker = selectedItem; const { error } = await supabase.from('jobs').insert({ title: `Serviço Direto: ${worker.full_name}`, description: hireDescription, client_id: user.id, worker_id: worker.id, status: 'pending', city: user.city, state: user.state, latitude: user.latitude, longitude: user.longitude, estimated_hours: estimatedHours }); if (error) { showToast(error.message, 'error'); } else { showToast(`Solicitação enviada para ${worker.full_name}!`, 'success'); closeModal(); setActiveTab('jobs'); fetchData(); } setLoading(false); };
   const confirmRating = async () => { if(selectedItem?.isAudited) { setModalType('audit'); return; } await processCompletion(); };
-  const processCompletion = async (auditAnswers?: {q1: string, q2: string}) => { if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error'); setLoading(true); const job = selectedItem; const updates: any = { status: 'completed', rating: ratingScore, duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', }; if(auditAnswers) { updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 }; } const { error: pointsError } = await supabase.rpc('increment_points', { user_id: user.id, amount: POINTS_RULES.CLIENT_FIXED }); if(pointsError) { await supabase.from('profiles').update({ points: user.points + POINTS_RULES.CLIENT_FIXED }).eq('id', user.id); } const { error: jobError } = await supabase.from('jobs').update(updates).eq('id', job.id); if (jobError) { showToast(jobError.message, 'error'); setLoading(false); return; } if(job.workerId) { await supabase.from('notifications').insert({ user_id: job.workerId, title: 'Serviço Confirmado!', message: `O cliente confirmou o serviço.`, type: 'job_update', action_link: JSON.stringify({screen: 'history'}) }); } showToast("Avaliação enviada!", 'success'); closeModal(); fetchData(); setLoading(false); };
+  const processCompletion = async (auditAnswers?: {q1: string, q2: string}) => {
+    if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error');
+    setLoading(true);
+    const job = selectedItem;
+    const updates: any = { status: 'completed', rating: ratingScore, duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo' };
+    if (auditAnswers) {
+      updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 };
+      await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', user.id);
+    }
+    const { error: pointsError } = await supabase.rpc('increment_points', { user_id: user.id, amount: POINTS_RULES.CLIENT_FIXED });
+    if (pointsError) { await supabase.from('profiles').update({ points: user.points + POINTS_RULES.CLIENT_FIXED }).eq('id', user.id); }
+    const { error: jobError } = await supabase.from('jobs').update(updates).eq('id', job.id);
+    if (jobError) { showToast(jobError.message, 'error'); setLoading(false); return; }
+    if (job.workerId) { await supabase.from('notifications').insert({ user_id: job.workerId, title: 'Serviço Confirmado!', message: `O cliente confirmou o serviço.`, type: 'job_update', action_link: JSON.stringify({ screen: 'history' }) }); }
+    showToast("Avaliação enviada!", 'success');
+    closeModal();
+    fetchData();
+    setLoading(false);
+  };
   const openRatingModal = (job: any) => { setSelectedItem(job); setModalType('rate'); setRatingScore(5); setRatingDuration(''); setCapturedImage(null); stopCamera(); };
   const closeModal = () => { setModalType(null); setSelectedItem(null); stopCamera(); setShowCameraPermission(false); };
   const fetchWorkersByCategory = async (category: string) => { setLoading(true); setSelectedCategory(category); let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']).ilike('specialty', `%${category}%`); if (user.city) query = query.ilike('city', user.city); const { data } = await query; setWorkers(data || []); setLoading(false); };
@@ -258,12 +282,39 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireDescription(''); };
   const openCancelModal = (job: any) => { setSelectedItem(job); setModalType('cancel'); setCancelReason(''); };
   const confirmCancelJob = async () => { if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoading(true); const jobId = selectedItem.id; const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', jobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoading(false); };
+
+  const openAppealModal = async () => {
+    const { data: byClient } = await supabase.from('jobs').select('id').eq('client_id', user.id).eq('admin_verdict', 'punished').limit(1).maybeSingle();
+    const { data: byWorker } = byClient ? { data: null } : await supabase.from('jobs').select('id').eq('worker_id', user.id).eq('admin_verdict', 'punished').limit(1).maybeSingle();
+    const punishedJob = byClient || byWorker;
+    setAppealJobId(punishedJob?.id || null);
+    setAppealText('');
+    setAppealModalOpen(true);
+  };
+  const submitAppeal = async () => {
+    if (!appealText.trim()) return showToast('Descreva o que aconteceu.', 'error');
+    if (!appealJobId) return showToast('Não foi possível vincular ao serviço.', 'error');
+    setLoading(true);
+    const { error } = await supabase.from('punishment_appeals').insert({ user_id: user.id, job_id: appealJobId, appeal_text: appealText.trim() });
+    if (error) showToast(error.message, 'error');
+    else { showToast('Recurso enviado. O admin analisará em breve.', 'success'); setAppealModalOpen(false); }
+    setLoading(false);
+  };
   
   const activeJobs = jobs.filter(j => ['pending', 'in_progress', 'waiting_verification'].includes(j.status));
 
   return (
     <div className="space-y-6 pb-20 sm:pb-0 relative">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+      {isPunished && (
+        <div className="bg-red-100 text-red-800 p-4 rounded-xl border border-red-200 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <p className="font-bold">Conta temporariamente suspensa</p>
+            <p className="text-xs">Você não pode criar pedidos até {user.punishment_until ? new Date(user.punishment_until).toLocaleDateString() : ''}. Acha que foi um engano? Recorra.</p>
+          </div>
+          <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white rounded-xl shrink-0" onClick={openAppealModal}>Recorrer punição</Button>
+        </div>
+      )}
 
       <div className="flex space-x-2 overflow-x-auto pb-2 no-scrollbar">
         <Button variant={activeTab === 'home' ? 'primary' : 'outline'} onClick={() => setActiveTab('home')} size="sm" className="whitespace-nowrap">Início</Button>
@@ -448,6 +499,16 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
       )}
       {modalType === 'audit' && (
           <AuditModal onConfirm={(answers) => processCompletion(answers)} onCancel={closeModal} />
+      )}
+      {appealModalOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
+              <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
+                  <h3 className="text-lg font-bold text-slate-800 mb-2">Recorrer punição</h3>
+                  <p className="text-sm text-slate-600 mb-4">Descreva o que aconteceu. Nossa equipe analisará seu recurso.</p>
+                  <textarea className="w-full p-3 bg-slate-100 rounded-lg text-sm mb-4 outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Sua justificativa..." rows={4} value={appealText} onChange={e => setAppealText(e.target.value)} />
+                  <div className="flex gap-2"><Button variant="outline" fullWidth onClick={() => setAppealModalOpen(false)}>Cancelar</Button><Button fullWidth onClick={submitAppeal} disabled={loading}>Enviar recurso</Button></div>
+              </div>
+          </div>
       )}
       {activeChatJobId && <ChatWindow jobId={activeChatJobId} currentUser={user} otherUserName={chatPartnerName} onClose={() => setActiveChatJobId(null)} />}
     </div>
