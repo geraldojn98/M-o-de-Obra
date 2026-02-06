@@ -55,6 +55,117 @@ const inputClass = "w-full px-4 py-3 bg-slate-50 border-0 rounded-2xl text-slate
 
 // --- MODALS ---
 
+const WorkerSpecialtyModal: React.FC<{ user: User, onUpdate: () => void }> = ({ user, onUpdate }) => {
+    const [specialties, setSpecialties] = useState<string[]>([]);
+    const [categories, setCategories] = useState<ServiceCategory[]>([]);
+    const [suggestion, setSuggestion] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        supabase.from('service_categories').select('*').order('name').then(({ data }) => {
+            if (data) {
+                // Ensure Outros is at the end or present
+                if(!data.find(c => c.name === 'Outros')) data.push({id:'outros', name:'Outros', icon:'HelpCircle'});
+                setCategories(data);
+            }
+        });
+    }, []);
+
+    const toggleSpecialty = (catName: string) => {
+        setSpecialties(prev => {
+            if(prev.includes(catName)) return prev.filter(c => c !== catName);
+            if(prev.length >= 3) return prev; // Max 3
+            return [...prev, catName];
+        });
+    };
+
+    const handleSave = async () => {
+        if(specialties.length === 0) return alert("Selecione pelo menos uma especialidade.");
+        
+        setLoading(true);
+        let finalSpecialties = [...specialties];
+        
+        // Handle "Outros" logic
+        if (specialties.includes('Outros')) {
+            if (suggestion.trim()) {
+                // Send to admin dashboard
+                await supabase.from('category_suggestions').insert({
+                    user_id: user.id,
+                    suggestion: suggestion.trim()
+                });
+                
+                // Replace 'Outros' with the specific suggestion in the user profile?
+                // Or keep 'Outros' and store the suggestion elsewhere?
+                // The prompt says: "sugerir o app a criar esta categoria, fazendo isso, o app vai enviar esta informação para o admindashboard"
+                // It doesn't explicitly say we save the suggestion as their specialty string, but usually we do.
+                // Let's remove 'Outros' and add the custom string to profile so they have something.
+                finalSpecialties = finalSpecialties.filter(s => s !== 'Outros');
+                finalSpecialties.push(suggestion.trim());
+            } else {
+                alert("Por favor, especifique qual é a sua categoria em 'Outros'.");
+                setLoading(false);
+                return;
+            }
+        }
+
+        const { error } = await supabase.from('profiles').update({ 
+            specialty: finalSpecialties.join(', ') 
+        }).eq('id', user.id);
+
+        if (!error) {
+            onUpdate();
+        } else {
+            alert("Erro ao salvar: " + error.message);
+        }
+        setLoading(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[160] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative text-center max-h-[90vh] overflow-y-auto">
+                <h2 className="text-2xl font-black text-brand-blue mb-2">Bem-vindo, Profissional!</h2>
+                <p className="text-slate-500 mb-4 text-sm">
+                    Para começar, diga-nos o que você faz.
+                </p>
+                <div className="bg-yellow-50 text-yellow-800 p-3 rounded-xl text-xs font-bold mb-6 border border-yellow-200">
+                    Você pode escolher até 3 opções, mas recomendamos apenas uma para que você seja melhor avaliado.
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-6">
+                    {categories.map(cat => (
+                        <button 
+                            key={cat.id}
+                            onClick={() => toggleSpecialty(cat.name)}
+                            className={`p-3 rounded-xl text-xs font-bold border transition-all ${
+                                specialties.includes(cat.name) 
+                                ? 'bg-brand-blue text-white border-brand-blue shadow-lg scale-105' 
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            {cat.name}
+                        </button>
+                    ))}
+                </div>
+
+                {specialties.includes('Outros') && (
+                    <div className="mb-6 text-left animate-fade-in">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Qual sua categoria?</label>
+                        <input 
+                            className={inputClass} 
+                            placeholder="Ex: Designer de Interiores" 
+                            value={suggestion}
+                            onChange={e => setSuggestion(e.target.value)}
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">Isso será enviado para análise da nossa equipe.</p>
+                    </div>
+                )}
+
+                <Button fullWidth onClick={handleSave} disabled={loading} size="lg">Concluir Cadastro</Button>
+            </div>
+        </div>
+    );
+};
+
 const LocationPermissionModal: React.FC<{ onAllow: () => void }> = ({ onAllow }) => (
     <div className="fixed inset-0 bg-brand-orange/90 z-[150] flex items-center justify-center p-6 animate-fade-in backdrop-blur-sm">
         <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative text-center">
@@ -115,7 +226,7 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-6 animate-fade-in backdrop-blur-sm">
         <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center relative">
             <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24}/></button>
-            <Mascot className="w-32 h-32 mx-auto mb-4 drop-shadow-xl" />
+            <Mascot className="w-32 h-32 mx-auto mb-4 drop-shadow-xl" variant="full" />
             <h3 className="font-black text-2xl text-slate-800 mb-2">Precisa de Ajuda?</h3>
             <p className="text-slate-500 mb-6 leading-relaxed">Nossa equipe de suporte está pronta para te atender!</p>
             
@@ -143,7 +254,7 @@ const PointsModal: React.FC<{ user: User, onClose: () => void }> = ({ user, onCl
                 .from('jobs')
                 .select('title, points_awarded, created_at')
                 .eq('worker_id', user.id)
-                .eq('status', 'waiting_verification') // Or completed, based on when points are awarded
+                .eq('status', 'waiting_verification') // Or completed
                 .gt('points_awarded', 0);
 
             // Fetch Redemptions (Spendings)
@@ -436,7 +547,7 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
     );
 };
 
-// --- LOGIN PAGE (Unchanged logic) ---
+// --- LOGIN PAGE ---
 const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -509,6 +620,7 @@ export default function App() {
   
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [showCompleteProfile, setShowCompleteProfile] = useState(false);
+  const [showWorkerSpecialty, setShowWorkerSpecialty] = useState(false);
 
   const [showLocModal, setShowLocModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
@@ -518,15 +630,24 @@ export default function App() {
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (profile) {
         const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
-        setCurrentUser({
+        const userObj: User = {
             id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
             points: profile.points, avatar: profile.avatar_url || DEFAULT_AVATAR, completedJobs: profile.completed_jobs,
             rating: profile.rating, phone: profile.phone, cpf: profile.cpf, specialty: profile.specialty, bio: profile.bio,
             city: profile.city, state: profile.state, latitude: profile.latitude, longitude: profile.longitude
-        });
+        };
+        setCurrentUser(userObj);
 
-        if (!profile.phone || !profile.cpf) setShowCompleteProfile(true);
-        else setShowCompleteProfile(false);
+        // Modais de Cadastro (Sequenciais)
+        if (!profile.phone || !profile.cpf) {
+            setShowCompleteProfile(true);
+        } else if (role === 'worker' && !profile.specialty) {
+            setShowCompleteProfile(false);
+            setShowWorkerSpecialty(true);
+        } else {
+            setShowCompleteProfile(false);
+            setShowWorkerSpecialty(false);
+        }
     }
   };
 
@@ -549,6 +670,7 @@ export default function App() {
               setCurrentUser(null);
               setIsLoading(false);
               setShowCompleteProfile(false);
+              setShowWorkerSpecialty(false);
           }
       });
       return () => { subscription.unsubscribe(); };
@@ -616,7 +738,7 @@ export default function App() {
 
   if (isLoading) return (
       <div className="min-h-screen bg-brand-orange flex flex-col items-center justify-center p-6 overflow-hidden">
-        <Mascot className="w-64 h-64 animate-bounce-slow drop-shadow-2xl" />
+        <Mascot className="w-64 h-64 animate-bounce-slow drop-shadow-2xl" variant="full" />
         <div className="mt-8 text-white font-black text-xl tracking-tighter animate-pulse">CARREGANDO...</div>
       </div>
   );
@@ -676,14 +798,11 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-orange-100 overflow-x-hidden w-full">
       <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
+          
+          {/* LEFT SIDE: Profile Drawer Button */}
           <div className="flex items-center gap-3">
-              {/* MASCOTE DE VOLTA AO HEADER */}
-              <button onClick={() => setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
-                  <Mascot className="w-10 h-10 object-contain" />
-              </button>
-
-              <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200">
+              <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-3 group">
+                  <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 group-hover:border-brand-orange transition-colors">
                      <img src={currentUser.avatar} className="w-full h-full object-cover"/>
                   </div>
                   <div className="flex flex-col text-left">
@@ -697,14 +816,21 @@ export default function App() {
               </button>
           </div>
 
+          {/* RIGHT SIDE: Notifications, Points, Mascot (Face) */}
           <div className="flex items-center gap-2 sm:gap-4">
               <NotificationBell userId={currentUser.id} />
+              
               {currentUser.role !== 'admin' && currentUser.role !== 'partner' && (
                   <button onClick={() => setShowPointsModal(true)} className="bg-yellow-50 hover:bg-yellow-100 px-2 sm:px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-yellow-200 transition-colors">
                       <Coins size={16} className="text-yellow-500 fill-yellow-500" />
                       <span className="text-slate-700 font-black text-xs">{currentUser.points}</span>
                   </button>
               )}
+
+              {/* MASCOTE DO ROSTO NA DIREITA */}
+              <button onClick={() => setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
+                  <Mascot className="w-10 h-10 object-contain rounded-full border-2 border-white shadow-sm" variant="face" />
+              </button>
           </div>
         </div>
       </header>
@@ -730,6 +856,9 @@ export default function App() {
       )}
       {showCompleteProfile && (
           <CompleteProfileModal user={currentUser} onUpdate={() => fetchProfileAndSetUser(currentUser.id)} />
+      )}
+      {showWorkerSpecialty && (
+          <WorkerSpecialtyModal user={currentUser} onUpdate={() => fetchProfileAndSetUser(currentUser.id)} />
       )}
       
       {showLocModal && <LocationPermissionModal onAllow={handleGrantLocation} />}

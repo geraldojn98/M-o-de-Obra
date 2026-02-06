@@ -3,11 +3,11 @@ import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
 import { 
     Users, Briefcase, Store, Search, Trash2, Edit, 
-    X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign 
+    X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign, Lightbulb 
 } from 'lucide-react';
-import { Partner } from '../types';
+import { Partner, CategorySuggestion } from '../types';
 
-type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications';
+type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions';
 
 const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => void }> = ({ user, onClose, onSave }) => {
     const [name, setName] = useState(user.full_name || '');
@@ -124,6 +124,7 @@ export const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [suggestions, setSuggestions] = useState<CategorySuggestion[]>([]);
   const [editingUser, setEditingUser] = useState<any>(null);
 
   // Notifications State
@@ -144,10 +145,15 @@ export const AdminDashboard: React.FC = () => {
     const { data: u } = await supabase.from('profiles').select('*').order('created_at', {ascending: false});
     const { data: j } = await supabase.from('jobs').select('*, client:client_id(full_name), worker:worker_id(full_name)').order('created_at', {ascending: false});
     const { data: p } = await supabase.from('partners').select('*').order('created_at', {ascending: false});
+    
+    // Suggestions
+    const { data: s } = await supabase.from('category_suggestions').select('*, user:user_id(full_name)').order('created_at', {ascending: false});
 
     if(u) setUsers(u);
     if(j) setJobs(j);
     if(p) setPartners(p);
+    if(s) setSuggestions(s.map((i:any) => ({ id: i.id, userId: i.user_id, userName: i.user?.full_name, suggestion: i.suggestion, createdAt: i.created_at })));
+    
     setLoading(false);
   };
 
@@ -159,22 +165,11 @@ export const AdminDashboard: React.FC = () => {
 
   const handleDeleteJob = async (id: string) => {
       if(!confirm("Tem certeza que deseja apagar este serviço e todas as mensagens vinculadas a ele?")) return;
-      
       try {
-          // 1. Manually delete related messages first to avoid Foreign Key constraints
-          // (This fixes the 'Delete' issue if ON DELETE CASCADE is missing in DB)
           await supabase.from('messages').delete().eq('job_id', id);
-          
-          // 2. Delete the job
           const { error } = await supabase.from('jobs').delete().eq('id', id);
-          
-          if (error) {
-              console.error(error);
-              alert("Erro ao apagar serviço: " + error.message);
-          } else {
-              // Optimistic UI update
-              setJobs(prev => prev.filter(j => j.id !== id));
-          }
+          if (error) throw error;
+          setJobs(prev => prev.filter(j => j.id !== id));
       } catch (e: any) {
           alert("Erro: " + e.message);
       }
@@ -182,7 +177,6 @@ export const AdminDashboard: React.FC = () => {
 
   const handleSendNotification = async () => {
       if(!notifTitle || !notifMsg) return alert("Preencha título e mensagem");
-      
       const rolesToTarget: string[] = [];
       if (targetAudiences.client) rolesToTarget.push('client');
       if (targetAudiences.worker) rolesToTarget.push('worker');
@@ -191,23 +185,12 @@ export const AdminDashboard: React.FC = () => {
       if(rolesToTarget.length === 0) return alert("Selecione pelo menos um tipo de usuário.");
 
       setLoading(true);
-
       try {
-        const targetUsers = users.filter(u => {
-            return u.allowed_roles && Array.isArray(u.allowed_roles) && u.allowed_roles.some((r: string) => rolesToTarget.includes(r));
-        });
-
-        const notifications = targetUsers.map(u => ({
-            user_id: u.id,
-            title: notifTitle,
-            message: notifMsg,
-            type: 'info'
-        }));
+        const targetUsers = users.filter(u => u.allowed_roles && Array.isArray(u.allowed_roles) && u.allowed_roles.some((r: string) => rolesToTarget.includes(r)));
+        const notifications = targetUsers.map(u => ({ user_id: u.id, title: notifTitle, message: notifMsg, type: 'info' }));
 
         if(notifications.length > 0) {
-            const { error } = await supabase.from('notifications').insert(notifications);
-            if(error) throw error;
-            
+            await supabase.from('notifications').insert(notifications);
             alert(`Enviado para ${notifications.length} usuários.`);
             setNotifTitle('');
             setNotifMsg('');
@@ -215,8 +198,7 @@ export const AdminDashboard: React.FC = () => {
             alert("Nenhum usuário encontrado com esses perfis.");
         }
       } catch (err: any) {
-          alert("Erro ao enviar notificação: " + err.message);
-          console.error(err);
+          alert("Erro ao enviar: " + err.message);
       } finally {
           setLoading(false);
       }
@@ -232,7 +214,6 @@ export const AdminDashboard: React.FC = () => {
       <div className="flex flex-col gap-4">
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">Painel Admin</h2>
           
-          {/* Scrollable Tabs */}
           <div className="relative w-full overflow-x-auto no-scrollbar pb-2">
              <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 w-max">
                   {[
@@ -240,6 +221,7 @@ export const AdminDashboard: React.FC = () => {
                       { id: 'users', label: 'Usuários', icon: Users },
                       { id: 'jobs', label: 'Serviços', icon: Briefcase },
                       { id: 'partners', label: 'Parceiros', icon: Store },
+                      { id: 'suggestions', label: 'Sugestões', icon: Lightbulb },
                       { id: 'notifications', label: 'Avisos', icon: BellRing }
                   ].map(tab => (
                       <button 
@@ -255,7 +237,6 @@ export const AdminDashboard: React.FC = () => {
           </div>
       </div>
 
-      {/* OVERVIEW */}
       {activeTab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
@@ -282,7 +263,6 @@ export const AdminDashboard: React.FC = () => {
           </div>
       )}
 
-      {/* USERS LIST */}
       {activeTab === 'users' && (
           <div className="space-y-4 animate-fade-in">
               <div className="relative">
@@ -294,7 +274,6 @@ export const AdminDashboard: React.FC = () => {
                     onChange={e=>setSearchTerm(e.target.value)}
                   />
               </div>
-
               <div className="grid grid-cols-1 gap-3">
                   {filteredUsers.map(u => (
                       <div key={u.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
@@ -327,16 +306,12 @@ export const AdminDashboard: React.FC = () => {
           </div>
       )}
 
-      {/* JOBS TAB */}
       {activeTab === 'jobs' && (
           <div className="space-y-4 animate-fade-in">
               <div className="bg-blue-50 text-blue-800 p-4 rounded-2xl mb-4 border border-blue-100">
                   <h3 className="font-bold flex items-center gap-2 text-sm"><Briefcase size={16}/> Gerenciar Serviços</h3>
-                  <p className="text-xs mt-1">Veja todos os serviços cadastrados na plataforma. Use com cuidado a opção de deletar.</p>
+                  <p className="text-xs mt-1">Veja todos os serviços cadastrados na plataforma.</p>
               </div>
-
-              {jobs.length === 0 && <div className="text-center p-8 text-slate-400 bg-white rounded-2xl">Nenhum serviço registrado.</div>}
-
               <div className="grid grid-cols-1 gap-4">
                   {jobs.map(job => (
                       <div key={job.id} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 relative">
@@ -359,7 +334,6 @@ export const AdminDashboard: React.FC = () => {
                                   </span>
                               </div>
                           </div>
-                          
                           <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 mt-4 bg-slate-50 p-3 rounded-xl">
                               <div className="flex flex-col">
                                   <span className="font-bold uppercase text-[10px] text-slate-400">Cliente</span>
@@ -378,14 +352,8 @@ export const AdminDashboard: React.FC = () => {
                                   <span className="flex items-center gap-1 text-green-600 font-bold"><DollarSign size={10}/> R$ {job.price || 'A combinar'}</span>
                               </div>
                           </div>
-
                           <div className="mt-4 flex justify-end">
-                                <button 
-                                    onClick={() => handleDeleteJob(job.id)}
-                                    className="text-red-400 hover:text-red-600 text-xs font-bold flex items-center gap-1 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors"
-                                >
-                                    <Trash2 size={14}/> Apagar Serviço
-                                </button>
+                                <button onClick={() => handleDeleteJob(job.id)} className="text-red-400 hover:text-red-600 text-xs font-bold flex items-center gap-1 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors"><Trash2 size={14}/> Apagar Serviço</button>
                           </div>
                       </div>
                   ))}
@@ -393,14 +361,12 @@ export const AdminDashboard: React.FC = () => {
           </div>
       )}
 
-      {/* PARTNERS TAB */}
       {activeTab === 'partners' && (
           <div className="space-y-4 animate-fade-in">
               <div className="bg-brand-orange/10 p-4 rounded-2xl border border-brand-orange/20">
                   <p className="text-xs font-bold text-brand-orange">DICA:</p>
                   <p className="text-xs text-slate-600">Para adicionar um parceiro, localize o usuário na aba "Usuários" e mude a Permissão dele para "Parceiro".</p>
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {partners.map(p => (
                       <div key={p.id} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between">
@@ -412,70 +378,60 @@ export const AdminDashboard: React.FC = () => {
                                   <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">{p.category}</span>
                               </div>
                           </div>
-                          <button onClick={() => handleDeletePartner(p.id)} className="p-3 text-red-400 hover:bg-red-50 rounded-2xl">
-                              <Trash2 size={20}/>
-                          </button>
+                          <button onClick={() => handleDeletePartner(p.id)} className="p-3 text-red-400 hover:bg-red-50 rounded-2xl"><Trash2 size={20}/></button>
                       </div>
                   ))}
               </div>
           </div>
       )}
 
-      {/* NOTIFICATIONS */}
+      {activeTab === 'suggestions' && (
+          <div className="space-y-4 animate-fade-in">
+              <div className="bg-yellow-50 text-yellow-800 p-4 rounded-2xl border border-yellow-200">
+                  <h3 className="font-bold flex items-center gap-2 text-sm"><Lightbulb size={16}/> Sugestões de Categoria</h3>
+                  <p className="text-xs mt-1">Profissionais sugeriram essas categorias ao se cadastrarem.</p>
+              </div>
+              {suggestions.length === 0 && <div className="p-8 text-center text-slate-400 bg-white rounded-2xl">Nenhuma sugestão pendente.</div>}
+              <div className="grid grid-cols-1 gap-3">
+                  {suggestions.map(s => (
+                      <div key={s.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                          <div className="flex justify-between items-start">
+                              <div>
+                                  <span className="text-xs font-bold text-slate-400 uppercase">Sugestão</span>
+                                  <h4 className="font-black text-lg text-slate-800">{s.suggestion}</h4>
+                              </div>
+                              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded font-bold">{new Date(s.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-slate-50 text-xs text-slate-500 flex items-center gap-2">
+                              <Users size={12} /> Sugerido por: <span className="font-bold">{s.userName}</span>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
       {activeTab === 'notifications' && (
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 animate-fade-in space-y-4 w-full">
               <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><BellRing className="text-brand-orange"/> Enviar Notificação</h3>
-              
               <div className="space-y-2">
                   <p className="text-xs font-bold text-slate-400 uppercase">Enviar para:</p>
                   <div className="flex flex-wrap gap-2">
-                      <button 
-                        onClick={() => setTargetAudiences(p => ({...p, client: !p.client}))}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border transition-colors ${targetAudiences.client ? 'bg-orange-50 border-brand-orange text-brand-orange' : 'bg-white border-slate-200 text-slate-500'}`}
-                      >
-                         {targetAudiences.client ? <CheckSquare size={16}/> : <Square size={16}/>} Clientes
-                      </button>
-                      <button 
-                        onClick={() => setTargetAudiences(p => ({...p, worker: !p.worker}))}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border transition-colors ${targetAudiences.worker ? 'bg-blue-50 border-brand-blue text-brand-blue' : 'bg-white border-slate-200 text-slate-500'}`}
-                      >
-                         {targetAudiences.worker ? <CheckSquare size={16}/> : <Square size={16}/>} Profissionais
-                      </button>
-                      <button 
-                        onClick={() => setTargetAudiences(p => ({...p, partner: !p.partner}))}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border transition-colors ${targetAudiences.partner ? 'bg-purple-50 border-purple-500 text-purple-600' : 'bg-white border-slate-200 text-slate-500'}`}
-                      >
-                         {targetAudiences.partner ? <CheckSquare size={16}/> : <Square size={16}/>} Parceiros
-                      </button>
+                      <button onClick={() => setTargetAudiences(p => ({...p, client: !p.client}))} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border transition-colors ${targetAudiences.client ? 'bg-orange-50 border-brand-orange text-brand-orange' : 'bg-white border-slate-200 text-slate-500'}`}> {targetAudiences.client ? <CheckSquare size={16}/> : <Square size={16}/>} Clientes </button>
+                      <button onClick={() => setTargetAudiences(p => ({...p, worker: !p.worker}))} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border transition-colors ${targetAudiences.worker ? 'bg-blue-50 border-brand-blue text-brand-blue' : 'bg-white border-slate-200 text-slate-500'}`}> {targetAudiences.worker ? <CheckSquare size={16}/> : <Square size={16}/>} Profissionais </button>
+                      <button onClick={() => setTargetAudiences(p => ({...p, partner: !p.partner}))} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border transition-colors ${targetAudiences.partner ? 'bg-purple-50 border-purple-500 text-purple-600' : 'bg-white border-slate-200 text-slate-500'}`}> {targetAudiences.partner ? <CheckSquare size={16}/> : <Square size={16}/>} Parceiros </button>
                   </div>
               </div>
-
               <div className="space-y-4 pt-2">
-                  <input 
-                    className="w-full p-4 bg-slate-50 border-0 rounded-2xl outline-none focus:ring-2 focus:ring-brand-orange" 
-                    placeholder="Título do Aviso" 
-                    value={notifTitle}
-                    onChange={e => setNotifTitle(e.target.value)}
-                  />
-                  <textarea 
-                    className="w-full p-4 bg-slate-50 border-0 rounded-2xl h-32 outline-none focus:ring-2 focus:ring-brand-orange" 
-                    placeholder="Sua mensagem para os usuários..." 
-                    value={notifMsg}
-                    onChange={e => setNotifMsg(e.target.value)}
-                  />
-                  <Button fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200" onClick={handleSendNotification} disabled={loading}>
-                      <Send size={18} className="mr-2"/> {loading ? 'Enviando...' : 'Disparar Notificação'}
-                  </Button>
+                  <input className="w-full p-4 bg-slate-50 border-0 rounded-2xl outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Título do Aviso" value={notifTitle} onChange={e => setNotifTitle(e.target.value)} />
+                  <textarea className="w-full p-4 bg-slate-50 border-0 rounded-2xl h-32 outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Sua mensagem para os usuários..." value={notifMsg} onChange={e => setNotifMsg(e.target.value)} />
+                  <Button fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200" onClick={handleSendNotification} disabled={loading}> <Send size={18} className="mr-2"/> {loading ? 'Enviando...' : 'Disparar Notificação'} </Button>
               </div>
           </div>
       )}
 
       {editingUser && (
-          <EditUserModal 
-            user={editingUser} 
-            onClose={() => setEditingUser(null)} 
-            onSave={fetchData} 
-          />
+          <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} onSave={fetchData} />
       )}
     </div>
   );

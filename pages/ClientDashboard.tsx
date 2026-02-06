@@ -134,12 +134,13 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
         setCategories(cats);
     }
 
-    // Coupons (Active & Available)
-    const { data: cData } = await supabase.from('coupons').select('*').eq('active', true).gt('available_quantity', 0).limit(3);
+    // Coupons (Active & Available) with Partner Info
+    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url)').eq('active', true).gt('available_quantity', 0).limit(3);
     if(cData) {
         setFeaturedCoupons(cData.map((c: any) => ({
             id: c.id, partnerId: c.partner_id, title: c.title, description: c.description,
-            cost: c.cost, totalQuantity: c.total_quantity, availableQuantity: c.available_quantity, active: c.active
+            cost: c.cost, totalQuantity: c.total_quantity, availableQuantity: c.available_quantity, active: c.active,
+            partnerName: c.partner?.name, partnerLogo: c.partner?.logo_url
         })));
     }
 
@@ -263,30 +264,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
             {viewMode === 'selection' && (
                 <div className="space-y-6 animate-fade-in">
                     
-                    {/* COUPONS BANNER */}
-                    {featuredCoupons.length > 0 && (
-                        <div className="overflow-x-auto no-scrollbar pb-2">
-                            <h3 className="font-bold text-slate-500 text-xs uppercase mb-2">Destaques para você</h3>
-                            <div className="flex gap-4 w-max">
-                                {featuredCoupons.map(coupon => (
-                                    <button 
-                                        key={coupon.id} 
-                                        onClick={onNavigateToPartners}
-                                        className="w-64 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
-                                    >
-                                        <div className="bg-orange-100 p-2 rounded-lg text-brand-orange shrink-0">
-                                            <Icons.Ticket size={20} />
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-sm text-slate-800 line-clamp-1">{coupon.title}</p>
-                                            <p className="text-xs text-slate-500 font-bold">{coupon.cost} pontos</p>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
                     {/* Hero Section */}
                     <div className="bg-brand-orange text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
                         <div className="relative z-10">
@@ -298,6 +275,35 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                             </div>
                         </div>
                     </div>
+
+                    {/* COUPONS BANNER (Moved below buttons) */}
+                    {featuredCoupons.length > 0 && (
+                        <div className="overflow-x-auto no-scrollbar pb-2">
+                            <h3 className="font-bold text-slate-500 text-xs uppercase mb-2">Descontos em Parceiros</h3>
+                            <div className="flex gap-4 w-max">
+                                {featuredCoupons.map(coupon => (
+                                    <button 
+                                        key={coupon.id} 
+                                        onClick={onNavigateToPartners}
+                                        className="w-72 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
+                                    >
+                                        <div className="bg-white border border-slate-100 w-14 h-14 rounded-lg flex items-center justify-center shrink-0 p-1">
+                                            {coupon.partnerLogo ? (
+                                                <img src={coupon.partnerLogo} className="w-full h-full object-contain" />
+                                            ) : (
+                                                <Icons.Store size={24} className="text-slate-300" />
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-bold text-xs text-brand-orange truncate">{coupon.partnerName}</p>
+                                            <p className="font-bold text-sm text-slate-800 line-clamp-1">{coupon.title}</p>
+                                            <p className="text-xs text-slate-500 font-bold flex items-center gap-1"><Icons.Ticket size={10}/> {coupon.cost} pts</p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
             

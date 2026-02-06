@@ -115,6 +115,18 @@ export interface Coupon {
   totalQuantity: number;
   availableQuantity: number;
   active: boolean;
+  
+  // Frontend Joined Data
+  partnerName?: string;
+  partnerLogo?: string;
+}
+
+export interface CategorySuggestion {
+    id: string;
+    userId: string;
+    userName?: string;
+    suggestion: string;
+    createdAt: string;
 }
 
 // Added Reward interface to support mockData usage
