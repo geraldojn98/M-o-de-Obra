@@ -21,12 +21,22 @@ export interface User {
   state?: string;
   latitude?: number;
   longitude?: number;
+
+  // Security
+  suspicious_flag?: boolean;
 }
 
 export interface ServiceCategory {
   id: string;
   name: string;
   icon: string;
+}
+
+export interface AuditData {
+    worker_q1?: string; // Material usado
+    worker_q2?: string; // Resultado
+    client_q1?: string; // Material usado
+    client_q2?: string; // Resultado
 }
 
 export interface Job {
@@ -38,7 +48,7 @@ export interface Job {
   workerName?: string;
   workerId?: string;
   category?: string;
-  status: 'pending' | 'in_progress' | 'waiting_verification' | 'completed' | 'cancelled';
+  status: 'pending' | 'in_progress' | 'waiting_verification' | 'completed' | 'cancelled' | 'audited';
   price: number;
   date: string;
   
@@ -48,11 +58,19 @@ export interface Job {
   latitude?: number;
   longitude?: number;
   
+  // Business Rules
+  estimatedHours: number; // 1, 2, 4, 8
+  pointsAwarded?: number;
+
   // Completion Fields
   rating?: number;
-  durationHours?: number;
+  durationHours?: number; // Real duration logged
   workerEvidence?: string;
   clientEvidence?: string;
+  
+  // Anti-Fraud
+  isAudited?: boolean;
+  auditData?: AuditData;
   
   // Cancellation
   cancellationReason?: string;
@@ -111,6 +129,7 @@ export interface Reward {
 
 export const POINTS_RULES = {
   REGISTER: 50,
-  JOB_COMPLETED: 10,
-  JOB_RATED: 5,
+  CLIENT_FIXED: 10, // Pontos fixos para cliente
+  WORKER_PER_HOUR: 10, // Pontos por hora para trabalhador
+  WORKER_DAILY_CAP: 80, // Máximo por dia
 };

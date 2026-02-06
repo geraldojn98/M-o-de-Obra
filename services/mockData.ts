@@ -26,7 +26,8 @@ export const MOCK_JOBS: Job[] = [
     price: 150.00,
     date: '2023-10-15',
     rating: 5,
-    workerEvidence: 'https://picsum.photos/300/200?random=11'
+    workerEvidence: 'https://picsum.photos/300/200?random=11',
+    estimatedHours: 2
   },
   {
     id: 'j2',
@@ -37,6 +38,7 @@ export const MOCK_JOBS: Job[] = [
     status: 'pending',
     price: 350.00,
     date: '2023-10-28',
+    estimatedHours: 4
   },
   {
     id: 'j3',
@@ -46,6 +48,7 @@ export const MOCK_JOBS: Job[] = [
     status: 'in_progress',
     price: 200.00,
     date: '2023-10-27',
+    estimatedHours: 8
   }
 ];
 
