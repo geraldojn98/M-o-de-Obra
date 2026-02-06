@@ -110,12 +110,22 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
 
   const fetchData = async () => {
     // Coupons with Partner Data
-    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url)').eq('active', true).gt('available_quantity', 0).limit(3);
+    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url, email)').eq('active', true).gt('available_quantity', 0).limit(3);
+    
     if(cData) {
+        const emails = cData.map((c: any) => c.partner?.email).filter(Boolean);
+        let avatarMap: Record<string, string> = {};
+
+        if (emails.length > 0) {
+            const { data: profiles } = await supabase.from('profiles').select('email, avatar_url').in('email', emails);
+            profiles?.forEach(p => { if(p.email) avatarMap[p.email] = p.avatar_url; });
+        }
+
         setFeaturedCoupons(cData.map((c: any) => ({
             id: c.id, partnerId: c.partner_id, title: c.title, description: c.description,
             cost: c.cost, totalQuantity: c.total_quantity, availableQuantity: c.available_quantity, active: c.active,
-            partnerName: c.partner?.name, partnerLogo: c.partner?.logo_url
+            partnerName: c.partner?.name, 
+            partnerLogo: avatarMap[c.partner?.email] || c.partner?.logo_url
         })));
     }
 
