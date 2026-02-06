@@ -1,4 +1,5 @@
 import React from 'react';
+import { IMAGES } from '../logos';
 
 interface MascotProps {
     className?: string;
@@ -7,8 +8,8 @@ interface MascotProps {
 
 export const Mascot: React.FC<MascotProps> = ({ className, variant = 'full' }) => {
   const src = variant === 'face' 
-    ? "/icon.png" // Usando o ícone do app como "Rosto" conforme solicitado (solução mais segura sem URL externa nova)
-    : "https://i.ibb.co/rR6fBCxg/MASCOTE-FUNDO-TRANSPARENTE.png";
+    ? IMAGES.MASCOT_FACE_TRANSPARENT
+    : IMAGES.MASCOT_TRANSPARENT;
 
   return (
     <img 

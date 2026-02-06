@@ -14,6 +14,7 @@ import { PartnersPage } from './pages/PartnersPage';
 import { PartnerDashboard } from './pages/PartnerDashboard';
 import { supabase } from './services/supabase';
 import { NotificationBell } from './components/NotificationBell';
+import { IMAGES } from './logos';
 
 const DEFAULT_AVATAR = "https://i.ibb.co/3W009gR/user-placeholder.png"; 
 
@@ -94,11 +95,6 @@ const WorkerSpecialtyModal: React.FC<{ user: User, onUpdate: () => void }> = ({ 
                     suggestion: suggestion.trim()
                 });
                 
-                // Replace 'Outros' with the specific suggestion in the user profile?
-                // Or keep 'Outros' and store the suggestion elsewhere?
-                // The prompt says: "sugerir o app a criar esta categoria, fazendo isso, o app vai enviar esta informação para o admindashboard"
-                // It doesn't explicitly say we save the suggestion as their specialty string, but usually we do.
-                // Let's remove 'Outros' and add the custom string to profile so they have something.
                 finalSpecialties = finalSpecialties.filter(s => s !== 'Outros');
                 finalSpecialties.push(suggestion.trim());
             } else {
@@ -582,7 +578,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
         <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden animate-fade-in p-8">
             <div className="text-center mb-6">
-                <img src="https://i.ibb.co/jv1sVsmT/LOGO-FUNDO-TRANSPARENTE.png" className="w-32 mx-auto" />
+                <img src={IMAGES.LOGO_TRANSPARENT} className="w-32 mx-auto" />
                 <h2 className="text-xl font-bold mt-2">{isRegistering ? 'Criar Conta' : 'Bem-vindo'}</h2>
             </div>
             {!isRegistering ? (
