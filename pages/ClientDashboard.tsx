@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Job, ServiceCategory, POINTS_RULES } from '../types';
+import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import * as Icons from 'lucide-react';
 import { supabase } from '../services/supabase';
@@ -7,9 +7,9 @@ import { ChatWindow } from '../components/ChatWindow';
 
 interface ClientDashboardProps {
   user: User;
+  onNavigateToPartners: () => void;
 }
 
-// Simple Toast Notification Component
 const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => (
     <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-xl z-[100] flex items-center gap-3 animate-fade-in ${
         type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
@@ -19,7 +19,6 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () 
     </div>
 );
 
-// Audit Modal for Client
 const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void, onCancel: () => void }> = ({ onConfirm, onCancel }) => {
     const [q1, setQ1] = useState('');
     const [q2, setQ2] = useState('');
@@ -35,7 +34,6 @@ const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void
                     Detectamos atividades atípicas entre você e este profissional (serviços consecutivos). 
                     Para validar este serviço e evitar bloqueios, responda:
                 </p>
-                
                 <div className="space-y-4 mb-6">
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Que materiais foram usados no serviço?</label>
@@ -46,7 +44,6 @@ const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void
                         <textarea className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-red-500" rows={2} value={q2} onChange={e => setQ2(e.target.value)} placeholder="Ex: Parede pintada de branco..." />
                     </div>
                 </div>
-
                 <div className="flex gap-2">
                     <Button variant="outline" fullWidth onClick={onCancel}>Cancelar</Button>
                     <Button fullWidth onClick={() => onConfirm({q1, q2})} disabled={!q1.trim() || !q2.trim()} className="bg-red-600 hover:bg-red-700 text-white">
@@ -58,18 +55,17 @@ const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void
     );
 };
 
-export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
+export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNavigateToPartners }) => {
   const [activeTab, setActiveTab] = useState<'home' | 'jobs'>('home');
   const [viewMode, setViewMode] = useState<'selection' | 'post_job' | 'find_pro'>('selection');
   
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [featuredCoupons, setFeaturedCoupons] = useState<Coupon[]>([]);
   
-  // UI State
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Job Post State
   const [jobTitle, setJobTitle] = useState('');
   const [jobDesc, setJobDesc] = useState('');
   const [jobPrice, setJobPrice] = useState('');
@@ -78,11 +74,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const [otherCategoryInput, setOtherCategoryInput] = useState('');
   const [isAllCategories, setIsAllCategories] = useState(true);
 
-  // Find Pro State
   const [workers, setWorkers] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Chat & Modals
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
   const [chatPartnerName, setChatPartnerName] = useState('');
   const [modalType, setModalType] = useState<'hire' | 'cancel' | 'rate' | 'audit' | null>(null);
@@ -92,7 +86,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingDuration, setRatingDuration] = useState('');
 
-  // Camera State
   const [showCameraPermission, setShowCameraPermission] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -132,7 +125,23 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
     setLoading(true);
     // Categories
     const { data: cats } = await supabase.from('service_categories').select('*').order('name');
-    if (cats) setCategories(cats);
+    if (cats) {
+        // Ensure 'Outros' exists in the list for logic purposes
+        const hasOutros = cats.some(c => c.name === 'Outros');
+        if (!hasOutros) {
+            cats.push({ id: 'custom-outros', name: 'Outros', icon: 'HelpCircle' });
+        }
+        setCategories(cats);
+    }
+
+    // Coupons (Active & Available)
+    const { data: cData } = await supabase.from('coupons').select('*').eq('active', true).gt('available_quantity', 0).limit(3);
+    if(cData) {
+        setFeaturedCoupons(cData.map((c: any) => ({
+            id: c.id, partnerId: c.partner_id, title: c.title, description: c.description,
+            cost: c.cost, totalQuantity: c.total_quantity, availableQuantity: c.available_quantity, active: c.active
+        })));
+    }
 
     // Jobs
     const { data: jobData } = await supabase
@@ -165,55 +174,20 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
 
   const handleStartCamera = async () => {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment" } 
-        });
-        setMediaStream(stream);
-        setCameraActive(true);
-        setShowCameraPermission(false);
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        setMediaStream(stream); setCameraActive(true); setShowCameraPermission(false);
     } catch (err) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            setMediaStream(stream);
-            setCameraActive(true);
-            setShowCameraPermission(false);
-        } catch (err2) {
-            alert("Erro ao acessar câmera.");
-            setShowCameraPermission(false);
-        }
+            setMediaStream(stream); setCameraActive(true); setShowCameraPermission(false);
+        } catch (err2) { alert("Erro ao acessar câmera."); setShowCameraPermission(false); }
     }
   };
 
-  const handleCapture = () => {
-    if (videoRef.current) {
-        const canvas = document.createElement("canvas");
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-            ctx.drawImage(videoRef.current, 0, 0);
-            const dataUrl = canvas.toDataURL("image/jpeg");
-            setCapturedImage(dataUrl);
-            stopCamera();
-        }
-    }
-  };
+  const handleCapture = () => { if (videoRef.current) { const canvas = document.createElement("canvas"); canvas.width = videoRef.current.videoWidth; canvas.height = videoRef.current.videoHeight; const ctx = canvas.getContext("2d"); if (ctx) { ctx.drawImage(videoRef.current, 0, 0); setCapturedImage(canvas.toDataURL("image/jpeg")); stopCamera(); } } };
+  const stopCamera = () => { if (mediaStream) mediaStream.getTracks().forEach(track => track.stop()); setMediaStream(null); setCameraActive(false); };
+  const toggleCategory = (catName: string) => { setSelectedCategories(prev => { if (prev.includes(catName)) return prev.filter(c => c !== catName); return [...prev, catName]; }); if(isAllCategories) setIsAllCategories(false); };
 
-  const stopCamera = () => {
-    if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
-    setMediaStream(null);
-    setCameraActive(false);
-  };
-
-  const toggleCategory = (catName: string) => {
-      setSelectedCategories(prev => {
-          if (prev.includes(catName)) return prev.filter(c => c !== catName);
-          return [...prev, catName];
-      });
-      if(isAllCategories) setIsAllCategories(false);
-  };
-
-  // --- JOB POSTING WITH DURATION ---
   const handlePostJob = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -221,6 +195,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
     let finalCategoryString = '';
     if (!isAllCategories) {
         const cats = [...selectedCategories];
+        // Handle "Outros" logic: remove keyword "Outros" and replace with input text
         if (cats.includes('Outros')) {
              const othersIndex = cats.indexOf('Outros');
              if (othersIndex > -1) cats.splice(othersIndex, 1);
@@ -245,14 +220,13 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
         state: user.state,
         latitude: user.latitude,
         longitude: user.longitude,
-        estimated_hours: estimatedHours // New Field
+        estimated_hours: estimatedHours
     }).select().single();
 
     if (error) {
         showToast(error.message, 'error');
     } else {
         showToast('Pedido publicado com sucesso!', 'success');
-        // Notification logic... (Kept same as original, abbreviated here for brevity)
         setJobTitle(''); setJobDesc(''); setJobPrice(''); setEstimatedHours(1);
         setSelectedCategories([]); setOtherCategoryInput(''); setIsAllCategories(true);
         setViewMode('selection');
@@ -261,136 +235,24 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
     setLoading(false);
   };
 
-  const confirmHireDirect = async () => {
-      if (!selectedItem || !hireDescription.trim()) return showToast("Descreva o serviço.", 'error');
-      setLoading(true);
-      const worker = selectedItem;
-
-      const { error } = await supabase.from('jobs').insert({
-          title: `Serviço Direto: ${worker.full_name}`,
-          description: hireDescription,
-          client_id: user.id,
-          worker_id: worker.id,
-          status: 'pending',
-          city: user.city,
-          state: user.state,
-          latitude: user.latitude,
-          longitude: user.longitude,
-          estimated_hours: estimatedHours // New Field (from Modal state if added, or default 1 for direct hire for now, or add selector in hire modal)
-      });
-      // NOTE: Direct hire implies default 1h or add selector. For simplicity assuming 1h default or update modal.
-      // Let's assume default 1h for direct hire simplicity unless UI updated.
-
-      if (error) {
-          showToast(error.message, 'error');
-      } else {
-           // Notification...
-          showToast(`Solicitação enviada para ${worker.full_name}!`, 'success');
-          closeModal();
-          setActiveTab('jobs');
-          fetchData();
-      }
-      setLoading(false);
-  };
-
-  const confirmRating = async () => {
-      // Check if audit is needed
-      if(selectedItem?.isAudited) {
-          setModalType('audit'); // Switch to audit modal
-          return;
-      }
-      await processCompletion();
-  };
-
-  const processCompletion = async (auditAnswers?: {q1: string, q2: string}) => {
-      if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error');
-      setLoading(true);
-      const job = selectedItem;
-      
-      const updates: any = {
-          status: 'completed', 
-          rating: ratingScore, 
-          duration_hours: parseFloat(ratingDuration),
-          client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo',
-      };
-
-      if(auditAnswers) {
-          updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 };
-      }
-
-      // Points for Client (Fixed)
-      // Note: Worker points are handled by trigger or backend usually, but here we can add client points
-      const { error: pointsError } = await supabase.rpc('increment_points', { 
-          user_id: user.id, 
-          amount: POINTS_RULES.CLIENT_FIXED 
-      });
-      
-      // Manual update fallback if RPC not exists or error
-      if(pointsError) {
-           await supabase.from('profiles').update({ points: user.points + POINTS_RULES.CLIENT_FIXED }).eq('id', user.id);
-      }
-
-      const { error: jobError } = await supabase.from('jobs').update(updates).eq('id', job.id);
-
-      if (jobError) {
-          showToast(jobError.message, 'error');
-          setLoading(false);
-          return;
-      }
-
-      // Notify Worker
-      if(job.workerId) {
-          await supabase.from('notifications').insert({
-             user_id: job.workerId,
-             title: 'Serviço Confirmado!',
-             message: `O cliente confirmou o serviço.`,
-             type: 'job_update',
-             action_link: JSON.stringify({screen: 'history'})
-         });
-      }
-      showToast("Avaliação enviada!", 'success');
-      closeModal();
-      fetchData();
-      setLoading(false);
-  };
-
-  // --- MODAL HELPERS ---
+  // ... (Other handlers unchanged: confirmHireDirect, confirmRating, processCompletion, modals)
+  const confirmHireDirect = async () => { if (!selectedItem || !hireDescription.trim()) return showToast("Descreva o serviço.", 'error'); setLoading(true); const worker = selectedItem; const { error } = await supabase.from('jobs').insert({ title: `Serviço Direto: ${worker.full_name}`, description: hireDescription, client_id: user.id, worker_id: worker.id, status: 'pending', city: user.city, state: user.state, latitude: user.latitude, longitude: user.longitude, estimated_hours: estimatedHours }); if (error) { showToast(error.message, 'error'); } else { showToast(`Solicitação enviada para ${worker.full_name}!`, 'success'); closeModal(); setActiveTab('jobs'); fetchData(); } setLoading(false); };
+  const confirmRating = async () => { if(selectedItem?.isAudited) { setModalType('audit'); return; } await processCompletion(); };
+  const processCompletion = async (auditAnswers?: {q1: string, q2: string}) => { if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error'); setLoading(true); const job = selectedItem; const updates: any = { status: 'completed', rating: ratingScore, duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', }; if(auditAnswers) { updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 }; } const { error: pointsError } = await supabase.rpc('increment_points', { user_id: user.id, amount: POINTS_RULES.CLIENT_FIXED }); if(pointsError) { await supabase.from('profiles').update({ points: user.points + POINTS_RULES.CLIENT_FIXED }).eq('id', user.id); } const { error: jobError } = await supabase.from('jobs').update(updates).eq('id', job.id); if (jobError) { showToast(jobError.message, 'error'); setLoading(false); return; } if(job.workerId) { await supabase.from('notifications').insert({ user_id: job.workerId, title: 'Serviço Confirmado!', message: `O cliente confirmou o serviço.`, type: 'job_update', action_link: JSON.stringify({screen: 'history'}) }); } showToast("Avaliação enviada!", 'success'); closeModal(); fetchData(); setLoading(false); };
   const openRatingModal = (job: any) => { setSelectedItem(job); setModalType('rate'); setRatingScore(5); setRatingDuration(''); setCapturedImage(null); stopCamera(); };
   const closeModal = () => { setModalType(null); setSelectedItem(null); stopCamera(); setShowCameraPermission(false); };
-  
-  // Reuse existing fetchWorkers, openChat...
-  const fetchWorkersByCategory = async (category: string) => {
-      setLoading(true);
-      setSelectedCategory(category);
-      let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']).ilike('specialty', `%${category}%`);
-      if (user.city) query = query.ilike('city', user.city);
-      const { data } = await query;
-      setWorkers(data || []);
-      setLoading(false);
-  };
+  const fetchWorkersByCategory = async (category: string) => { setLoading(true); setSelectedCategory(category); let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']).ilike('specialty', `%${category}%`); if (user.city) query = query.ilike('city', user.city); const { data } = await query; setWorkers(data || []); setLoading(false); };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
   const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireDescription(''); };
   const openCancelModal = (job: any) => { setSelectedItem(job); setModalType('cancel'); setCancelReason(''); };
-  const confirmCancelJob = async () => { /* ...existing logic... */ 
-    if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error');
-    setLoading(true);
-    const jobId = selectedItem.id;
-    const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', jobId);
-    if (error) showToast(error.message, 'error');
-    else {
-        closeModal(); fetchData();
-    }
-    setLoading(false);
-  };
-
+  const confirmCancelJob = async () => { if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoading(true); const jobId = selectedItem.id; const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', jobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoading(false); };
+  
   const activeJobs = jobs.filter(j => ['pending', 'in_progress', 'waiting_verification'].includes(j.status));
-  const historyJobs = jobs.filter(j => ['completed', 'cancelled'].includes(j.status));
 
   return (
     <div className="space-y-6 pb-20 sm:pb-0 relative">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Tabs ... */}
       <div className="flex space-x-2 overflow-x-auto pb-2 no-scrollbar">
         <Button variant={activeTab === 'home' ? 'primary' : 'outline'} onClick={() => setActiveTab('home')} size="sm" className="whitespace-nowrap">Início</Button>
         <Button variant={activeTab === 'jobs' ? 'primary' : 'outline'} onClick={() => setActiveTab('jobs')} size="sm" className="whitespace-nowrap">Meus Pedidos</Button>
@@ -398,10 +260,34 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
 
       {activeTab === 'home' && (
           <>
-            {/* View Modes ... */}
             {viewMode === 'selection' && (
                 <div className="space-y-6 animate-fade-in">
-                    {/* Hero Section ... */}
+                    
+                    {/* COUPONS BANNER */}
+                    {featuredCoupons.length > 0 && (
+                        <div className="overflow-x-auto no-scrollbar pb-2">
+                            <h3 className="font-bold text-slate-500 text-xs uppercase mb-2">Destaques para você</h3>
+                            <div className="flex gap-4 w-max">
+                                {featuredCoupons.map(coupon => (
+                                    <button 
+                                        key={coupon.id} 
+                                        onClick={onNavigateToPartners}
+                                        className="w-64 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
+                                    >
+                                        <div className="bg-orange-100 p-2 rounded-lg text-brand-orange shrink-0">
+                                            <Icons.Ticket size={20} />
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-sm text-slate-800 line-clamp-1">{coupon.title}</p>
+                                            <p className="text-xs text-slate-500 font-bold">{coupon.cost} pontos</p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Hero Section */}
                     <div className="bg-brand-orange text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
                         <div className="relative z-10">
                             <div className="flex items-center gap-2 mb-2 text-white/80 text-xs uppercase font-bold"><Icons.MapPin size={14}/> {user.city}</div>
@@ -424,24 +310,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                     <form onSubmit={handlePostJob} className="space-y-4">
                         <input value={jobTitle} onChange={e=>setJobTitle(e.target.value)} placeholder="Título (Ex: Consertar pia)" className="w-full px-4 py-3 bg-slate-50 border rounded-lg" required />
                         
-                        {/* DURATION SELECTOR */}
                         <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                            <label className="block text-xs font-bold text-blue-800 uppercase mb-2">Duração Estimada (Impacta pontos do profissional)</label>
+                            <label className="block text-xs font-bold text-blue-800 uppercase mb-2">Duração Estimada</label>
                             <div className="grid grid-cols-4 gap-2">
                                 {[1, 2, 4, 8].map(h => (
-                                    <button 
-                                        key={h} 
-                                        type="button" 
-                                        onClick={() => setEstimatedHours(h)}
-                                        className={`py-2 rounded-lg font-bold text-sm border transition-colors ${estimatedHours === h ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:bg-blue-50'}`}
-                                    >
-                                        {h}h {h===8 ? '(Diária)' : ''}
-                                    </button>
+                                    <button key={h} type="button" onClick={() => setEstimatedHours(h)} className={`py-2 rounded-lg font-bold text-sm border transition-colors ${estimatedHours === h ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:bg-blue-50'}`}>{h}h {h===8 ? '(Diária)' : ''}</button>
                                 ))}
                             </div>
                         </div>
 
-                        {/* Category Selector ... */}
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                              <p className="text-sm font-bold text-slate-700 mb-2">Categoria</p>
                              <button type="button" onClick={() => { setIsAllCategories(true); setSelectedCategories([]); }} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold mb-2 flex items-center gap-2 ${isAllCategories ? 'bg-brand-orange text-white' : 'bg-white text-slate-500 border'}`}>
@@ -459,6 +336,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                                      ))}
                                  </div>
                              )}
+                             {!isAllCategories && selectedCategories.includes('Outros') && (
+                                 <div className="mt-3 animate-fade-in">
+                                     <input className="w-full mt-1 p-2 text-sm border rounded" placeholder="Qual a categoria?" value={otherCategoryInput} onChange={e => setOtherCategoryInput(e.target.value)} required />
+                                 </div>
+                             )}
                         </div>
 
                         <textarea value={jobDesc} onChange={e=>setJobDesc(e.target.value)} placeholder="Descreva detalhadamente..." className="w-full px-4 py-3 bg-slate-50 border rounded-lg h-32" required />
@@ -468,7 +350,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                 </div>
             )}
             
-            {/* View Mode Find Pro... (Standard) */}
              {viewMode === 'find_pro' && (
                 <div className="animate-fade-in space-y-4">
                      <div className="flex items-center gap-2 mb-4">
@@ -500,7 +381,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
 
       {activeTab === 'jobs' && (
         <div className="space-y-8 animate-fade-in">
-           {/* Active Jobs */}
            <div>
                <h3 className="font-bold text-lg text-brand-blue mb-4 flex items-center gap-2"><Icons.Briefcase size={20}/> Em Andamento</h3>
                {activeJobs.map(job => (
@@ -525,11 +405,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
                    </div>
                ))}
            </div>
-           {/* History ... */}
         </div>
       )}
 
-      {/* MODALS */}
       {modalType === 'hire' && selectedItem && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
                <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
@@ -554,7 +432,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user }) => {
       {modalType === 'audit' && (
           <AuditModal onConfirm={(answers) => processCompletion(answers)} onCancel={closeModal} />
       )}
-      {/* Cancel Modal ... */}
       {activeChatJobId && <ChatWindow jobId={activeChatJobId} currentUser={user} otherUserName={chatPartnerName} onClose={() => setActiveChatJobId(null)} />}
     </div>
   );

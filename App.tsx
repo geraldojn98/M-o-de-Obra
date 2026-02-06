@@ -5,7 +5,7 @@ import { Button } from './components/Button';
 import { 
     LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, 
     Store, Edit, Check, AlertTriangle, Menu, Home, Coins, ArrowRight, History, Camera, Upload,
-    MapPin, Bell, Navigation
+    MapPin, Bell, Navigation, MessageCircle, Calendar
 } from 'lucide-react';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientDashboard } from './pages/ClientDashboard';
@@ -33,13 +33,6 @@ const maskCpf = (value: string) => {
   else if (v.length > 6) v = `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6)}`;
   else if (v.length > 3) v = `${v.slice(0, 3)}.${v.slice(3)}`;
   return v;
-};
-
-const validateEmail = (email: string): { valid: boolean; msg?: string } => {
-  const cleanEmail = email.trim().toLowerCase();
-  const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  if (!regex.test(cleanEmail)) return { valid: false, msg: "Por favor, digite um e-mail válido." };
-  return { valid: true };
 };
 
 const reverseGeocode = async (lat: number, lng: number) => {
@@ -116,7 +109,115 @@ const CityChangeModal: React.FC<{ currentCity: string, newCity: string, onUpdate
     </div>
 );
 
-// --- EXISTING MODALS (CompleteProfile, EditProfile, etc) ---
+// --- HELPER MODALS ---
+
+const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-6 animate-fade-in backdrop-blur-sm">
+        <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center relative">
+            <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24}/></button>
+            <Mascot className="w-32 h-32 mx-auto mb-4 drop-shadow-xl" />
+            <h3 className="font-black text-2xl text-slate-800 mb-2">Precisa de Ajuda?</h3>
+            <p className="text-slate-500 mb-6 leading-relaxed">Nossa equipe de suporte está pronta para te atender!</p>
+            
+            <div className="space-y-3">
+                <a href="https://wa.me/5537991561461" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-green-200">
+                    <MessageCircle size={24} /> WhatsApp (37) 99156-1461
+                </a>
+                <a href="mailto:suporte@appmaodeobra.com" className="flex items-center justify-center gap-3 w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-4 rounded-2xl transition-all">
+                    <Mail size={24} /> suporte@appmaodeobra.com
+                </a>
+            </div>
+        </div>
+    </div>
+);
+
+const PointsModal: React.FC<{ user: User, onClose: () => void }> = ({ user, onClose }) => {
+    const [history, setHistory] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchHistory = async () => {
+            setLoading(true);
+            // Fetch Jobs (Earnings)
+            const { data: jobs } = await supabase
+                .from('jobs')
+                .select('title, points_awarded, created_at')
+                .eq('worker_id', user.id)
+                .eq('status', 'waiting_verification') // Or completed, based on when points are awarded
+                .gt('points_awarded', 0);
+
+            // Fetch Redemptions (Spendings)
+            const { data: redemptions } = await supabase
+                .from('coupon_redemptions')
+                .select('cost_paid, redeemed_at, coupon:coupon_id(title)')
+                .eq('user_id', user.id);
+
+            const earnings = (jobs || []).map((j: any) => ({
+                id: `job-${j.created_at}`,
+                type: 'earn',
+                title: `Serviço: ${j.title}`,
+                amount: j.points_awarded,
+                date: j.created_at
+            }));
+
+            const spendings = (redemptions || []).map((r: any) => ({
+                id: `redemption-${r.redeemed_at}`,
+                type: 'spend',
+                title: `Resgate: ${r.coupon?.title}`,
+                amount: -r.cost_paid,
+                date: r.redeemed_at
+            }));
+
+            // Merge and Sort
+            const all = [...earnings, ...spendings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            setHistory(all);
+            setLoading(false);
+        };
+        fetchHistory();
+    }, [user.id]);
+
+    return (
+         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in backdrop-blur-sm">
+             <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden flex flex-col max-h-[80vh] shadow-2xl relative">
+                 <div className="bg-yellow-400 p-6 text-center relative shrink-0">
+                     <button onClick={onClose} className="absolute top-4 right-4 text-white/80 hover:text-white"><X size={24}/></button>
+                     <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 backdrop-blur-sm">
+                        <Coins size={32} className="text-white"/>
+                     </div>
+                     <h2 className="text-4xl font-black text-white">{user.points}</h2>
+                     <p className="text-white/80 font-bold uppercase text-xs tracking-widest">Seus Pontos</p>
+                 </div>
+                 
+                 <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+                     <h3 className="font-bold text-slate-500 text-sm mb-4 uppercase tracking-wider flex items-center gap-2">
+                         <History size={16}/> Histórico de Transações
+                     </h3>
+                     {loading ? (
+                         <div className="text-center py-10 text-slate-400">Carregando...</div>
+                     ) : history.length === 0 ? (
+                         <div className="text-center py-10 text-slate-400">Nenhuma movimentação ainda.</div>
+                     ) : (
+                         <div className="space-y-3">
+                             {history.map(item => (
+                                 <div key={item.id} className="bg-white p-3 rounded-xl border border-slate-100 flex justify-between items-center shadow-sm">
+                                     <div>
+                                         <p className="font-bold text-slate-800 text-sm">{item.title}</p>
+                                         <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                             <Calendar size={10}/> {new Date(item.date).toLocaleDateString()}
+                                         </p>
+                                     </div>
+                                     <span className={`font-black text-sm ${item.type === 'earn' ? 'text-green-500' : 'text-red-500'}`}>
+                                         {item.type === 'earn' ? '+' : ''}{item.amount}
+                                     </span>
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+                 </div>
+             </div>
+         </div>
+    );
+};
 
 const CompleteProfileModal: React.FC<{ user: User, onUpdate: () => void }> = ({ user, onUpdate }) => {
     const [phone, setPhone] = useState(user.phone || '');
@@ -183,7 +284,7 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
     useEffect(() => {
         if(user.role === 'worker') {
             supabase.from('service_categories').select('*').order('name').then(({data}) => {
-                if(data) setAllCategories(data.filter(c => c.name !== 'Outros'));
+                if(data) setAllCategories(data);
             });
         }
     }, [user.role]);
@@ -205,7 +306,6 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
                 if (addr) {
                     setCity(addr.city);
                     setState(addr.state);
-                    // We update the DB immediately for lat/long on Save, but user can see city
                 }
                 setLocLoading(false);
             }, (error) => {
@@ -243,10 +343,6 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
         setLoading(true);
         const updates: any = { full_name: name, phone: phone, bio: bio, city: city, state: state };
         if(user.role === 'worker') updates.specialty = specialties.join(', ');
-        
-        // If we used GPS to get city, we likely want to update lat/long too, but doing it hidden
-        // For now, simpler to just update text fields unless we track state of "isGpsUpdated"
-        // Let's rely on the location check at startup for precise lat/long updates usually.
 
         const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
         if(!error) {
@@ -340,34 +436,8 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
     );
 };
 
-// ... (PointsModal and HelpModal remain unchanged, assume they are here) ...
-const PointsModal: React.FC<{ user: User, onClose: () => void }> = ({ user, onClose }) => {
-    // Simplified version for brevity, assuming original logic logic is preserved in real file
-    return (
-         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-             <div className="bg-white rounded-3xl p-6 relative">
-                 <button onClick={onClose} className="absolute top-4 right-4"><X/></button>
-                 <div className="text-center">
-                     <Coins size={40} className="mx-auto text-yellow-500 mb-2"/>
-                     <h2 className="text-2xl font-bold">{user.points} Pontos</h2>
-                 </div>
-             </div>
-         </div>
-    );
-};
-const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
-        <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-lg mb-4">Ajuda</h3>
-            <p>Contato: suporte@app.com</p>
-            <Button fullWidth onClick={onClose} className="mt-4">Fechar</Button>
-        </div>
-    </div>
-);
-
-// --- LOGIN PAGE (Unchanged logic, just ensure imports work) ---
+// --- LOGIN PAGE (Unchanged logic) ---
 const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
-    // ... Login implementation as per original ...
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -440,7 +510,6 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [showCompleteProfile, setShowCompleteProfile] = useState(false);
 
-  // New Permission States
   const [showLocModal, setShowLocModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [showCityChangeModal, setShowCityChangeModal] = useState<{current: string, new: string, lat: number, lng: number} | null>(null);
@@ -468,7 +537,6 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
           await fetchProfileAndSetUser(session.user.id);
-          // Wait a bit before checking permissions to let the UI settle
           setTimeout(() => checkPermissionsAndLocation(session.user.id), 1000);
       }
       if (isMounted) setIsLoading(false);
@@ -491,50 +559,28 @@ export default function App() {
   }, []);
 
   const checkPermissionsAndLocation = async (userId: string) => {
-      // 1. Check Geolocation Permission & Consistency
       if ("geolocation" in navigator) {
           navigator.permissions.query({ name: 'geolocation' }).then(result => {
-              if (result.state === 'prompt') {
-                  setShowLocModal(true);
-              } else if (result.state === 'granted') {
-                  verifyLocationConsistency(userId);
-              }
+              if (result.state === 'prompt') setShowLocModal(true);
+              else if (result.state === 'granted') verifyLocationConsistency(userId);
           });
       }
-
-      // 2. Check Notification Permission
-      if ("Notification" in window) {
-          if (Notification.permission === 'default') {
-              setShowNotifModal(true);
-          }
-      }
+      if ("Notification" in window && Notification.permission === 'default') setShowNotifModal(true);
   };
 
   const verifyLocationConsistency = (userId: string) => {
       navigator.geolocation.getCurrentPosition(async (position) => {
           const { latitude, longitude } = position.coords;
           const addr = await reverseGeocode(latitude, longitude);
-          
           if (addr) {
-              // Fetch fresh profile data to compare
               const { data: profile } = await supabase.from('profiles').select('city, state').eq('id', userId).single();
-              
               if (profile) {
-                  // If profile has no city, set it automatically
                   if (!profile.city) {
-                      await supabase.from('profiles').update({ 
-                          city: addr.city, state: addr.state, latitude, longitude 
-                      }).eq('id', userId);
-                      await fetchProfileAndSetUser(userId); // Refresh local state
+                      await supabase.from('profiles').update({ city: addr.city, state: addr.state, latitude, longitude }).eq('id', userId);
+                      await fetchProfileAndSetUser(userId);
                   } 
-                  // If profile city is different from GPS city
                   else if (profile.city.toLowerCase() !== addr.city.toLowerCase()) {
-                      setShowCityChangeModal({
-                          current: profile.city,
-                          new: addr.city,
-                          lat: latitude,
-                          lng: longitude
-                      });
+                      setShowCityChangeModal({ current: profile.city, new: addr.city, lat: latitude, lng: longitude });
                   }
               }
           }
@@ -542,12 +588,10 @@ export default function App() {
   };
 
   const handleGrantLocation = () => {
-      navigator.geolocation.getCurrentPosition(
-          (pos) => {
+      navigator.geolocation.getCurrentPosition((pos) => {
               setShowLocModal(false);
               if (currentUser) verifyLocationConsistency(currentUser.id);
-          }, 
-          (err) => alert("Precisamos da permissão para continuar.")
+          }, (err) => alert("Precisamos da permissão para continuar.")
       );
   };
 
@@ -555,10 +599,7 @@ export default function App() {
       Notification.requestPermission().then(permission => {
           setShowNotifModal(false);
           if (permission === 'granted') {
-              new Notification("Notificações Ativadas!", { 
-                  body: "Agora você receberá alertas de serviços.",
-                  icon: '/icon.png'
-              });
+              new Notification("Notificações Ativadas!", { body: "Agora você receberá alertas de serviços.", icon: '/icon.png' });
           }
       });
   };
@@ -567,14 +608,7 @@ export default function App() {
       if (showCityChangeModal && currentUser) {
           const { new: newCity, lat, lng } = showCityChangeModal;
           const addr = await reverseGeocode(lat, lng);
-          
-          await supabase.from('profiles').update({ 
-              city: newCity, 
-              state: addr?.state || '',
-              latitude: lat, 
-              longitude: lng 
-          }).eq('id', currentUser.id);
-          
+          await supabase.from('profiles').update({ city: newCity, state: addr?.state || '', latitude: lat, longitude: lng }).eq('id', currentUser.id);
           await fetchProfileAndSetUser(currentUser.id);
           setShowCityChangeModal(null);
       }
@@ -589,7 +623,6 @@ export default function App() {
 
   if (!currentUser) return <LoginPage onLogin={setCurrentUser} />;
 
-  // ... (Role Badge & Drawer Menu logic preserved from original) ...
   const getRoleBadge = (role: UserRole) => {
       switch(role) {
           case 'admin': return { label: 'Admin', bg: 'bg-red-100 text-red-600' };
@@ -599,6 +632,7 @@ export default function App() {
       }
   };
   const roleInfo = getRoleBadge(currentUser.role);
+  
   const DrawerMenu = () => (
       <div className="fixed inset-0 z-[100] flex">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)}></div>
@@ -624,6 +658,7 @@ export default function App() {
                           <Store size={20}/> Lojas Parceiras
                       </button>
                   )}
+                  {/* AJUDA: Same handler as Mascot */}
                   <button onClick={() => { setShowHelp(true); setIsDrawerOpen(false); }} className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-slate-600 hover:bg-slate-50">
                       <HelpCircle size={20}/> Ajuda
                   </button>
@@ -642,18 +677,24 @@ export default function App() {
       <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
           <div className="flex items-center gap-3">
-              <button onClick={() => setIsDrawerOpen(true)} className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 active:scale-95 transition-transform">
-                 <img src={currentUser.avatar} className="w-full h-full object-cover"/>
+              {/* MASCOTE DE VOLTA AO HEADER */}
+              <button onClick={() => setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
+                  <Mascot className="w-10 h-10 object-contain" />
               </button>
-              <div className="flex flex-col cursor-pointer" onClick={() => setIsDrawerOpen(true)}>
-                  <span className="font-black text-slate-800 text-sm leading-tight truncate max-w-[120px] sm:max-w-none">
-                      {currentUser.name.split(' ')[0]}
-                  </span>
-                  <div className="flex items-center gap-1">
-                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>{roleInfo.label}</span>
-                      {currentUser.city && <span className="text-[10px] text-slate-400 font-bold truncate max-w-[80px] hidden sm:block">• {currentUser.city}</span>}
+
+              <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200">
+                     <img src={currentUser.avatar} className="w-full h-full object-cover"/>
                   </div>
-              </div>
+                  <div className="flex flex-col text-left">
+                      <span className="font-black text-slate-800 text-sm leading-tight truncate max-w-[120px] sm:max-w-none">
+                          {currentUser.name.split(' ')[0]}
+                      </span>
+                      <div className="flex items-center gap-1">
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>{roleInfo.label}</span>
+                      </div>
+                  </div>
+              </button>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
@@ -675,8 +716,8 @@ export default function App() {
          currentPage === 'partners' ? <PartnersPage /> : (
            <>
                {currentUser.role === 'admin' && <AdminDashboard />}
-               {currentUser.role === 'client' && <ClientDashboard user={currentUser} />}
-               {currentUser.role === 'worker' && <WorkerDashboard user={currentUser} />}
+               {currentUser.role === 'client' && <ClientDashboard user={currentUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
+               {currentUser.role === 'worker' && <WorkerDashboard user={currentUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
            </>
          )}
       </main>
@@ -691,7 +732,6 @@ export default function App() {
           <CompleteProfileModal user={currentUser} onUpdate={() => fetchProfileAndSetUser(currentUser.id)} />
       )}
       
-      {/* NEW MODALS */}
       {showLocModal && <LocationPermissionModal onAllow={handleGrantLocation} />}
       {showNotifModal && <NotificationPermissionModal onAllow={handleGrantNotification} onSkip={() => setShowNotifModal(false)} />}
       {showCityChangeModal && (

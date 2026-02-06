@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Job, ServiceCategory, POINTS_RULES } from '../types';
+import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
-import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin } from 'lucide-react';
+import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 
 interface WorkerDashboardProps {
   user: User;
+  onNavigateToPartners: () => void;
 }
 
 const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => (
@@ -33,7 +34,6 @@ const WorkerAuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) =
                 <p className="text-slate-600 text-sm mb-6">
                     Para garantir a validade deste serviço consecutivo, responda:
                 </p>
-                
                 <div className="space-y-4 mb-6">
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Materiais Utilizados?</label>
@@ -44,7 +44,6 @@ const WorkerAuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) =
                         <textarea className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-red-500" rows={2} value={q2} onChange={e => setQ2(e.target.value)} />
                     </div>
                 </div>
-
                 <div className="flex gap-2">
                     <Button variant="outline" fullWidth onClick={onCancel}>Cancelar</Button>
                     <Button fullWidth onClick={() => onConfirm({q1, q2})} disabled={!q1.trim() || !q2.trim()} className="bg-red-600 hover:bg-red-700 text-white">
@@ -56,26 +55,23 @@ const WorkerAuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) =
     );
 };
 
-export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
+export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNavigateToPartners }) => {
   const [activeTab, setActiveTab] = useState<'jobs' | 'my_jobs' | 'history'>('jobs');
   const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
+  const [featuredCoupons, setFeaturedCoupons] = useState<Coupon[]>([]);
   const [hasActiveJob, setHasActiveJob] = useState(false);
-  const [activeJobEndTime, setActiveJobEndTime] = useState<Date | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
   const [todayPoints, setTodayPoints] = useState(0);
   
-  // UI States
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
   const [chatPartnerName, setChatPartnerName] = useState('');
   
-  // Modals
   const [modalType, setModalType] = useState<'cancel' | 'finish' | 'audit' | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
-  // Camera
   const [showCameraPermission, setShowCameraPermission] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -89,7 +85,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
 
   useEffect(() => { if (toast) setTimeout(() => setToast(null), 4000); }, [toast]);
 
-  // Video logic same as previous
   useEffect(() => {
     if (cameraActive && mediaStream && videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -100,8 +95,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const showToast = (msg: string, type: 'success' | 'error') => setToast({ msg, type });
 
   const calculateTodayPoints = async () => {
-    // This assumes we have a ledger or we sum from completed jobs today.
-    // Since we don't have a ledger table in schema, we sum jobs completed today.
     const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
     const { data } = await supabase.from('jobs')
         .select('points_awarded')
@@ -116,6 +109,15 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   };
 
   const fetchData = async () => {
+    // Coupons
+    const { data: cData } = await supabase.from('coupons').select('*').eq('active', true).gt('available_quantity', 0).limit(3);
+    if(cData) {
+        setFeaturedCoupons(cData.map((c: any) => ({
+            id: c.id, partnerId: c.partner_id, title: c.title, description: c.description,
+            cost: c.cost, totalQuantity: c.total_quantity, availableQuantity: c.available_quantity, active: c.active
+        })));
+    }
+
     // 1. Fetch OPEN jobs
     let query = supabase.from('jobs').select('*, client:client_id(full_name)').eq('status', 'pending');
     if (user.city) query = query.ilike('city', user.city);
@@ -148,18 +150,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
             isAudited: j.is_audited
         }));
         setMyJobs(parsedJobs);
-        
-        // Availability Check Logic
         const active = parsedJobs.find((j: any) => j.status === 'in_progress' || j.status === 'waiting_verification');
         setHasActiveJob(!!active);
-        
-        if (active && active.status === 'in_progress') {
-            // "Disponibilidade": Assuming availability locks for estimated duration?
-            // The prompt says "intervalo mínimo de o tempo estimado".
-            // We can calculate logic here, but simpler is: If has active job, can't take another.
-            // Advanced: If active job started 2 hours ago and was 1 hour estimate? 
-            // Let's stick to "Busy if In Progress" for robustness.
-        }
     }
   };
 
@@ -169,14 +161,12 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       const jobToAccept = availableJobs.find(j => j.id === jobId);
       if(!jobToAccept) return;
 
-      // RULE: DAILY CAP
       if (todayPoints >= POINTS_RULES.WORKER_DAILY_CAP) {
           return showToast("Você atingiu o limite diário de pontos (80). Volte amanhã!", 'error');
       }
 
       setLoadingAction(true);
 
-      // RULE: REPETITION (Same Client / Same Day)
       const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
       const { data: jobsWithClientToday } = await supabase.from('jobs')
         .select('id')
@@ -192,7 +182,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
            }
       }
 
-      // WARNING: AVAILABILITY
       if(!confirm(`Este serviço tem duração estimada de ${jobToAccept.estimatedHours}h. Você ficará indisponível para novos chamados durante este período. Confirmar?`)) {
           setLoadingAction(false);
           return;
@@ -202,7 +191,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       
       if (error) { showToast(error.message, 'error'); setLoadingAction(false); }
       else {
-          // Notify ...
           showToast('Serviço aceito!', 'success'); setActiveTab('my_jobs'); await fetchData(); setLoadingAction(false);
       }
   };
@@ -214,9 +202,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       const job = myJobs.find(j => j.id === selectedJobId);
       if (!job) return;
 
-      // RULE: CONSECUTIVE DAYS (Audit Trigger)
       if (!auditAnswers) {
-        // Check for job yesterday with same client
         const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0,0,0,0);
         const today = new Date(); today.setHours(0,0,0,0);
         
@@ -228,45 +214,34 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
             .lt('created_at', today.toISOString());
         
         if (consecutiveJobs && consecutiveJobs.length > 0) {
-            setModalType('audit'); // Open Audit Modal
+            setModalType('audit'); 
             setLoadingAction(false);
             return;
         }
       }
 
-      // Calculate Points
-      // 1. Basic: 10 * Hours
       let pointsToAward = job.estimatedHours * POINTS_RULES.WORKER_PER_HOUR;
       
-      // 2. Cap Check
       const potentialTotal = todayPoints + pointsToAward;
       if (potentialTotal > POINTS_RULES.WORKER_DAILY_CAP) {
           pointsToAward = Math.max(0, POINTS_RULES.WORKER_DAILY_CAP - todayPoints);
       }
 
-      // 3. Repetition Check (Same Day = 0) - Recalculate to be sure
       const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
       const { data: jobsToday } = await supabase.from('jobs').select('id').eq('client_id', job.clientId).eq('worker_id', user.id).gte('created_at', startOfDay.toISOString());
-      // Logic: If there is another job created today that is NOT this one, then this is repetition.
-      // But we are updating status. 'jobsToday' includes the current one because we accepted it.
-      // If length > 1, it's repetition.
       if (jobsToday && jobsToday.length > 1) {
           pointsToAward = 0;
       }
       
-      // 4. Audit Check
       let isAudited = false;
       let auditData = null;
       if (auditAnswers) {
-          pointsToAward = 0; // Suspend points until admin review or strictly zero
+          pointsToAward = 0;
           isAudited = true;
           auditData = { worker_q1: auditAnswers.q1, worker_q2: auditAnswers.q2 };
-          // Flag User
           await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', user.id);
       }
 
-      // Apply Updates
-      // We store points_awarded in job. We add to profile points using RPC to be safe, or direct update
       const updates: any = { 
           status: 'waiting_verification', 
           worker_evidence_url: capturedImage,
@@ -275,10 +250,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       };
       if(auditData) updates.audit_data = auditData;
 
-      // Update Points (Only if > 0 and not audited - if audited, we hold)
       if (pointsToAward > 0 && !isAudited) {
            const { error: rpcError } = await supabase.rpc('increment_points', { user_id: user.id, amount: pointsToAward });
-           
            if (rpcError) {
                 const {data:prof} = await supabase.from('profiles').select('points').eq('id', user.id).single();
                 if(prof) await supabase.from('profiles').update({ points: prof.points + pointsToAward }).eq('id', user.id);
@@ -294,33 +267,14 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
       setLoadingAction(false);
   };
   
-  // Helpers
-  const handleStartCamera = async () => { /* ... */ 
-      try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-          setMediaStream(stream); setCameraActive(true); setShowCameraPermission(false);
-      } catch (err) {
-          try {
-              const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-              setMediaStream(stream); setCameraActive(true); setShowCameraPermission(false);
-          } catch (err2) { alert("Erro ao acessar câmera."); setShowCameraPermission(false); }
-      }
-  };
+  const handleStartCamera = async () => { try { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); setMediaStream(stream); setCameraActive(true); setShowCameraPermission(false); } catch (err) { try { const stream = await navigator.mediaDevices.getUserMedia({ video: true }); setMediaStream(stream); setCameraActive(true); setShowCameraPermission(false); } catch (err2) { alert("Erro ao acessar câmera."); setShowCameraPermission(false); } } };
   const handleCapture = () => { if (videoRef.current) { const canvas = document.createElement("canvas"); canvas.width = videoRef.current.videoWidth; canvas.height = videoRef.current.videoHeight; const ctx = canvas.getContext("2d"); if (ctx) { ctx.drawImage(videoRef.current, 0, 0); setCapturedImage(canvas.toDataURL("image/jpeg")); stopCamera(); } } };
   const stopCamera = () => { if (mediaStream) mediaStream.getTracks().forEach(track => track.stop()); setMediaStream(null); setCameraActive(false); };
   const handleRetake = () => { setCapturedImage(null); handleStartCamera(); };
-  
   const openCancelModal = (e: React.MouseEvent, jobId: string) => { e.stopPropagation(); setSelectedJobId(jobId); setModalType('cancel'); setCancelReason(''); };
   const openFinishModal = (e: React.MouseEvent, jobId: string) => { e.stopPropagation(); setSelectedJobId(jobId); setModalType('finish'); setCapturedImage(null); stopCamera(); };
   const closeModal = () => { setModalType(null); setSelectedJobId(null); stopCamera(); setShowCameraPermission(false); };
-  const confirmCancelJob = async () => { /* ... */ 
-    if (!selectedJobId || !cancelReason.trim()) return showToast("Informe o motivo.", 'error');
-    setLoadingAction(true);
-    const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', selectedJobId);
-    if (error) showToast(error.message, 'error');
-    else { closeModal(); fetchData(); }
-    setLoadingAction(false);
-  };
+  const confirmCancelJob = async () => { if (!selectedJobId || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoadingAction(true); const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', selectedJobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoadingAction(false); };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
 
   const currentActiveJobs = myJobs.filter(j => ['in_progress', 'waiting_verification'].includes(j.status));
@@ -357,6 +311,31 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
 
        {activeTab === 'jobs' && (
          <div className="space-y-4 animate-fade-in">
+           
+           {/* COUPONS BANNER */}
+           {featuredCoupons.length > 0 && (
+                <div className="overflow-x-auto no-scrollbar pb-2">
+                    <h3 className="font-bold text-slate-500 text-xs uppercase mb-2">Descontos em Parceiros</h3>
+                    <div className="flex gap-4 w-max">
+                        {featuredCoupons.map(coupon => (
+                            <button 
+                                key={coupon.id} 
+                                onClick={onNavigateToPartners}
+                                className="w-64 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
+                            >
+                                <div className="bg-orange-100 p-2 rounded-lg text-brand-orange shrink-0">
+                                    <Ticket size={20} />
+                                </div>
+                                <div>
+                                    <p className="font-bold text-sm text-slate-800 line-clamp-1">{coupon.title}</p>
+                                    <p className="text-xs text-slate-500 font-bold">{coupon.cost} pontos</p>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+           )}
+
            {hasActiveJob && <div className="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-sm mb-2 flex items-center gap-2"><Clock size={16} /> Você tem um serviço ativo. Termine-o para pegar outro.</div>}
            {availableJobs.length === 0 && (
                <div className="text-center py-10 opacity-60">
@@ -386,7 +365,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
          </div>
        )}
 
-       {/* My Jobs Tab ... (Kept existing visual structure) */}
+       {/* My Jobs & History remain largely similar, reused from previous state logic */}
        {activeTab === 'my_jobs' && (
            <div className="space-y-6 animate-fade-in pb-20">
                 {currentActiveJobs.map(job => (
@@ -409,7 +388,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
            </div>
        )}
         
-       {/* History Tab ... */}
        {activeTab === 'history' && (
            <div className="space-y-4 animate-fade-in pb-20">
                {historyJobs.map(job => (
@@ -426,7 +404,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
            </div>
        )}
 
-       {/* Finish Modal */}
         {modalType === 'finish' && (
            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
                <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl text-center my-auto">
@@ -464,7 +441,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
        {modalType === 'audit' && (
            <WorkerAuditModal onConfirm={(answers) => confirmFinishJob(answers)} onCancel={closeModal} />
        )}
-       {/* Cancel Modal (Existing) */}
        {modalType === 'cancel' && (
            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
                <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
