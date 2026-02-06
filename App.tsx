@@ -545,6 +545,70 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
 
 // --- LOGIN PAGE ---
 const LOGIN_AS_KEY = 'loginAs';
+const GOOGLE_ROLE_KEY = 'googleRolePending';
+
+const GoogleRoleModal: React.FC<{ onSelect: (role: 'client' | 'worker') => void }> = ({ onSelect }) => {
+    const [selectedRole, setSelectedRole] = useState<'client' | 'worker'>('client');
+
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4 animate-fade-in backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+                <div className="text-center mb-6">
+                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <UserIcon size={32} className="text-brand-blue" />
+                    </div>
+                    <h3 className="font-black text-xl text-slate-800 mb-2">Escolha o tipo de conta</h3>
+                    <p className="text-sm text-slate-600">Como você quer usar o app?</p>
+                </div>
+                <div className="space-y-3 mb-6">
+                    <button
+                        onClick={() => setSelectedRole('client')}
+                        className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
+                            selectedRole === 'client'
+                                ? 'border-brand-orange bg-orange-50'
+                                : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                selectedRole === 'client' ? 'border-brand-orange bg-brand-orange' : 'border-slate-300'
+                            }`}>
+                                {selectedRole === 'client' && <Check size={12} className="text-white" />}
+                            </div>
+                            <div>
+                                <p className="font-bold text-slate-800">Cliente</p>
+                                <p className="text-xs text-slate-500">Contratar profissionais para serviços</p>
+                            </div>
+                        </div>
+                    </button>
+                    <button
+                        onClick={() => setSelectedRole('worker')}
+                        className={`w-full p-4 rounded-xl border-2 transition-all text-left ${
+                            selectedRole === 'worker'
+                                ? 'border-brand-blue bg-blue-50'
+                                : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                selectedRole === 'worker' ? 'border-brand-blue bg-brand-blue' : 'border-slate-300'
+                            }`}>
+                                {selectedRole === 'worker' && <Check size={12} className="text-white" />}
+                            </div>
+                            <div>
+                                <p className="font-bold text-slate-800">Profissional</p>
+                                <p className="text-xs text-slate-500">Oferecer serviços e ganhar pontos</p>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+                <Button fullWidth onClick={() => onSelect(selectedRole)} size="lg" className="rounded-xl">
+                    Continuar
+                </Button>
+            </div>
+        </div>
+    );
+};
 
 const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
     const [email, setEmail] = useState('');
@@ -554,6 +618,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
     const [activeTab, setActiveTab] = useState<'client' | 'worker'>('client');
     const [loginAs, setLoginAs] = useState<'client' | 'worker'>('client');
     const [regName, setRegName] = useState('');
+    const [showGoogleRoleModal, setShowGoogleRoleModal] = useState(false);
 
     const handleLoginSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -587,6 +652,83 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
         }
     };
 
+    const handleGoogleLogin = async () => {
+        setLoading(true);
+        try {
+            sessionStorage.setItem(GOOGLE_ROLE_KEY, 'pending');
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: `${window.location.origin}`,
+                    queryParams: {
+                        access_type: 'offline',
+                        prompt: 'consent',
+                    }
+                }
+            });
+            if (error) {
+                alert(error.message);
+                sessionStorage.removeItem(GOOGLE_ROLE_KEY);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGoogleRoleSelect = async (role: 'client' | 'worker') => {
+        setShowGoogleRoleModal(false);
+        setLoading(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+                if (profile) {
+                    const currentRoles = profile.allowed_roles || [];
+                    if (!currentRoles.includes(role)) {
+                        const newRoles = [...new Set([...currentRoles, role])];
+                        await supabase.from('profiles').update({ allowed_roles: newRoles }).eq('id', user.id);
+                    }
+                    sessionStorage.setItem(LOGIN_AS_KEY, role);
+                    sessionStorage.removeItem(GOOGLE_ROLE_KEY);
+                    window.location.reload();
+                } else {
+                    await supabase.from('profiles').insert({
+                        id: user.id,
+                        email: user.email,
+                        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
+                        allowed_roles: [role],
+                        avatar_url: user.user_metadata?.avatar_url || DEFAULT_AVATAR,
+                        points: 50
+                    });
+                    sessionStorage.setItem(LOGIN_AS_KEY, role);
+                    sessionStorage.removeItem(GOOGLE_ROLE_KEY);
+                    window.location.reload();
+                }
+            }
+        } catch (err: any) {
+            alert('Erro ao configurar conta: ' + err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const checkGoogleLogin = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user && sessionStorage.getItem(GOOGLE_ROLE_KEY) === 'pending') {
+                const { data: profile } = await supabase.from('profiles').select('allowed_roles').eq('id', session.user.id).maybeSingle();
+                if (profile && profile.allowed_roles && profile.allowed_roles.length > 0) {
+                    sessionStorage.removeItem(GOOGLE_ROLE_KEY);
+                    sessionStorage.setItem(LOGIN_AS_KEY, profile.allowed_roles[0]);
+                    window.location.reload();
+                } else {
+                    setShowGoogleRoleModal(true);
+                }
+            }
+        };
+        checkGoogleLogin();
+    }, []);
+
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
         <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden animate-fade-in p-8">
@@ -618,6 +760,28 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                     <input value={email} onChange={e=>setEmail(e.target.value)} className={inputClass} placeholder="Email" type="email" required />
                     <input value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} placeholder="Senha" type="password" required />
                     <Button fullWidth disabled={loading}>Entrar</Button>
+                    <div className="relative my-4">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-slate-200"></div>
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-white px-2 text-slate-500 font-bold">ou</span>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleGoogleLogin}
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border-2 border-slate-200 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <svg className="w-5 h-5" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                        </svg>
+                        Entrar com Google
+                    </button>
                     <button type="button" onClick={()=>setIsRegistering(true)} className="w-full text-center text-sm text-slate-500">Criar conta</button>
                 </form>
             ) : (
@@ -637,6 +801,7 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                 </form>
             )}
         </div>
+        {showGoogleRoleModal && <GoogleRoleModal onSelect={handleGoogleRoleSelect} />}
       </div>
     );
 };
@@ -656,12 +821,62 @@ export default function App() {
   const [showLocModal, setShowLocModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [showCityChangeModal, setShowCityChangeModal] = useState<{current: string, new: string, lat: number, lng: number} | null>(null);
+  const [showGoogleRoleModal, setShowGoogleRoleModal] = useState(false);
+  const [pendingGoogleUser, setPendingGoogleUser] = useState<string | null>(null);
+
+  const handleGoogleRoleSelect = async (role: 'client' | 'worker') => {
+    if (!pendingGoogleUser) return;
+    setShowGoogleRoleModal(false);
+    setIsLoading(true);
+    try {
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', pendingGoogleUser).maybeSingle();
+        if (profile) {
+            const currentRoles = profile.allowed_roles || [];
+            if (!currentRoles.includes(role)) {
+                const newRoles = [...new Set([...currentRoles, role])];
+                await supabase.from('profiles').update({ allowed_roles: newRoles }).eq('id', pendingGoogleUser);
+            }
+            sessionStorage.setItem(LOGIN_AS_KEY, role);
+            sessionStorage.removeItem(GOOGLE_ROLE_KEY);
+            await fetchProfileAndSetUser(pendingGoogleUser);
+        } else {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                await supabase.from('profiles').insert({
+                    id: user.id,
+                    email: user.email,
+                    full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário',
+                    allowed_roles: [role],
+                    avatar_url: user.user_metadata?.avatar_url || DEFAULT_AVATAR,
+                    points: 50
+                });
+                sessionStorage.setItem(LOGIN_AS_KEY, role);
+                sessionStorage.removeItem(GOOGLE_ROLE_KEY);
+                await fetchProfileAndSetUser(user.id);
+            }
+        }
+    } catch (err: any) {
+        alert('Erro ao configurar conta: ' + err.message);
+    } finally {
+        setIsLoading(false);
+        setPendingGoogleUser(null);
+    }
+  };
 
   const fetchProfileAndSetUser = async (userId: string) => {
     const preferredRole = sessionStorage.getItem(LOGIN_AS_KEY) as 'client' | 'worker' | null;
-    if (preferredRole) sessionStorage.removeItem(LOGIN_AS_KEY);
+    const googleRolePending = sessionStorage.getItem(GOOGLE_ROLE_KEY) === 'pending';
+    
+    if (preferredRole && !googleRolePending) sessionStorage.removeItem(LOGIN_AS_KEY);
 
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    
+    if (googleRolePending && (!profile || !profile.allowed_roles || profile.allowed_roles.length === 0)) {
+        setPendingGoogleUser(userId);
+        setShowGoogleRoleModal(true);
+        return;
+    }
+
     if (profile) {
         const roles = profile.allowed_roles || [];
         let role: UserRole;
@@ -688,6 +903,12 @@ export default function App() {
         } else {
             setShowCompleteProfile(false);
             setShowWorkerSpecialty(false);
+        }
+    } else if (!googleRolePending) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            setPendingGoogleUser(userId);
+            setShowGoogleRoleModal(true);
         }
     }
   };
@@ -959,6 +1180,49 @@ export default function App() {
             onUpdate={handleUpdateCity} 
             onCancel={() => setShowCityChangeModal(null)}
           />
+      )}
+      {showGoogleRoleModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4 animate-fade-in backdrop-blur-sm">
+              <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl relative">
+                  <div className="text-center mb-6">
+                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <UserIcon size={32} className="text-brand-blue" />
+                      </div>
+                      <h3 className="font-black text-xl text-slate-800 mb-2">Escolha o tipo de conta</h3>
+                      <p className="text-sm text-slate-600">Como você quer usar o app?</p>
+                  </div>
+                  <div className="space-y-3 mb-6">
+                      <button
+                          onClick={() => handleGoogleRoleSelect('client')}
+                          className="w-full p-4 rounded-xl border-2 border-brand-orange bg-orange-50 transition-all text-left hover:bg-orange-100"
+                      >
+                          <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full border-2 border-brand-orange bg-brand-orange flex items-center justify-center">
+                                  <Check size={12} className="text-white" />
+                              </div>
+                              <div>
+                                  <p className="font-bold text-slate-800">Cliente</p>
+                                  <p className="text-xs text-slate-500">Contratar profissionais para serviços</p>
+                              </div>
+                          </div>
+                      </button>
+                      <button
+                          onClick={() => handleGoogleRoleSelect('worker')}
+                          className="w-full p-4 rounded-xl border-2 border-brand-blue bg-blue-50 transition-all text-left hover:bg-blue-100"
+                      >
+                          <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full border-2 border-brand-blue bg-brand-blue flex items-center justify-center">
+                                  <Check size={12} className="text-white" />
+                              </div>
+                              <div>
+                                  <p className="font-bold text-slate-800">Profissional</p>
+                                  <p className="text-xs text-slate-500">Oferecer serviços e ganhar pontos</p>
+                              </div>
+                          </div>
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );
