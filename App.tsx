@@ -544,45 +544,77 @@ const EditProfileModal: React.FC<{ user: User, onClose: () => void, onUpdate: ()
 };
 
 // --- LOGIN PAGE ---
+const LOGIN_AS_KEY = 'loginAs';
+
 const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [isRegistering, setIsRegistering] = useState(false);
     const [activeTab, setActiveTab] = useState<'client' | 'worker'>('client');
+    const [loginAs, setLoginAs] = useState<'client' | 'worker'>('client');
     const [regName, setRegName] = useState('');
 
     const handleLoginSubmit = async (e: React.FormEvent) => {
-        e.preventDefault(); setLoading(true);
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if(!error && data.user) {
-             // Logic handled in App useEffect via auth state change
-        } else {
-            alert(error?.message);
+        e.preventDefault();
+        setLoading(true);
+        try {
+            sessionStorage.setItem(LOGIN_AS_KEY, loginAs);
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) alert(error.message);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleRegister = async (e: React.FormEvent) => {
-        e.preventDefault(); setLoading(true);
-        const { error } = await supabase.auth.signUp({ 
-            email, password, 
-            options: { data: { full_name: regName, role: activeTab, avatar_url: DEFAULT_AVATAR } } 
-        });
-        if(!error) { alert("Cadastro realizado! Faça login."); setIsRegistering(false); }
-        else alert(error.message);
-        setLoading(false);
+        e.preventDefault();
+        setLoading(true);
+        try {
+            const { error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: { data: { full_name: regName, role: activeTab, avatar_url: DEFAULT_AVATAR } }
+            });
+            if (!error) {
+                alert("Cadastro realizado! Faça login.");
+                setIsRegistering(false);
+            } else {
+                alert(error.message);
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
         <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden animate-fade-in p-8">
             <div className="text-center mb-6">
-                <img src={IMAGES.LOGO_TRANSPARENT} className="w-32 mx-auto" />
+                <img src={IMAGES.LOGO_TRANSPARENT} className="w-32 mx-auto" alt="Logo" />
                 <h2 className="text-xl font-bold mt-2">{isRegistering ? 'Criar Conta' : 'Bem-vindo'}</h2>
             </div>
             {!isRegistering ? (
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Entrar como</label>
+                        <div className="flex bg-slate-100 rounded-xl p-1">
+                            <button
+                                type="button"
+                                onClick={() => setLoginAs('client')}
+                                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${loginAs === 'client' ? 'bg-white shadow text-brand-orange' : 'text-slate-500'}`}
+                            >
+                                Cliente
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLoginAs('worker')}
+                                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${loginAs === 'worker' ? 'bg-white shadow text-brand-blue' : 'text-slate-500'}`}
+                            >
+                                Profissional
+                            </button>
+                        </div>
+                    </div>
                     <input value={email} onChange={e=>setEmail(e.target.value)} className={inputClass} placeholder="Email" type="email" required />
                     <input value={password} onChange={e=>setPassword(e.target.value)} className={inputClass} placeholder="Senha" type="password" required />
                     <Button fullWidth disabled={loading}>Entrar</Button>
@@ -590,9 +622,12 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                 </form>
             ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
-                    <div className="flex bg-slate-100 rounded-lg p-1 mb-2">
-                        <button type="button" onClick={()=>setActiveTab('client')} className={`flex-1 py-2 rounded text-sm font-bold ${activeTab==='client'?'bg-white shadow':''}`}>Cliente</button>
-                        <button type="button" onClick={()=>setActiveTab('worker')} className={`flex-1 py-2 rounded text-sm font-bold ${activeTab==='worker'?'bg-white shadow':''}`}>Profissional</button>
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Cadastrar como</label>
+                        <div className="flex bg-slate-100 rounded-xl p-1">
+                            <button type="button" onClick={()=>setActiveTab('client')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${activeTab==='client'?'bg-white shadow text-brand-orange':'text-slate-500'}`}>Cliente</button>
+                            <button type="button" onClick={()=>setActiveTab('worker')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition ${activeTab==='worker'?'bg-white shadow text-brand-blue':'text-slate-500'}`}>Profissional</button>
+                        </div>
                     </div>
                     <input value={regName} onChange={e=>setRegName(e.target.value)} className={inputClass} placeholder="Nome" required />
                     <input value={email} onChange={e=>setEmail(e.target.value)} className={inputClass} placeholder="Email" type="email" required />
@@ -623,19 +658,28 @@ export default function App() {
   const [showCityChangeModal, setShowCityChangeModal] = useState<{current: string, new: string, lat: number, lng: number} | null>(null);
 
   const fetchProfileAndSetUser = async (userId: string) => {
+    const preferredRole = sessionStorage.getItem(LOGIN_AS_KEY) as 'client' | 'worker' | null;
+    if (preferredRole) sessionStorage.removeItem(LOGIN_AS_KEY);
+
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (profile) {
-        const role = profile.allowed_roles.includes('admin') ? 'admin' : profile.allowed_roles.includes('partner') ? 'partner' : profile.allowed_roles[0];
+        const roles = profile.allowed_roles || [];
+        let role: UserRole;
+        if (roles.includes('admin')) role = 'admin';
+        else if (roles.includes('partner')) role = 'partner';
+        else if (preferredRole && roles.includes(preferredRole)) role = preferredRole;
+        else role = (roles[0] || 'client') as UserRole;
+
         const userObj: User = {
-            id: profile.id, email: profile.email, name: profile.full_name, role: role as UserRole,
+            id: profile.id, email: profile.email, name: profile.full_name, role,
             points: profile.points, avatar: profile.avatar_url || DEFAULT_AVATAR, completedJobs: profile.completed_jobs,
             rating: profile.rating, phone: profile.phone, cpf: profile.cpf, specialty: profile.specialty, bio: profile.bio,
             city: profile.city, state: profile.state, latitude: profile.latitude, longitude: profile.longitude,
-            suspicious_flag: profile.suspicious_flag, active: profile.active !== false, punishment_until: profile.punishment_until
+            suspicious_flag: profile.suspicious_flag, active: profile.active !== false, punishment_until: profile.punishment_until,
+            allowed_roles: (roles as UserRole[])
         };
         setCurrentUser(userObj);
 
-        // Modais de Cadastro (Sequenciais)
         if (!profile.phone || !profile.cpf) {
             setShowCompleteProfile(true);
         } else if (role === 'worker' && !profile.specialty) {
@@ -751,14 +795,39 @@ export default function App() {
       }
   };
   const roleInfo = getRoleBadge(currentUser.role);
-  
+  const allowedRoles = currentUser.allowed_roles || [];
+  const hasClient = allowedRoles.includes('client');
+  const hasWorker = allowedRoles.includes('worker');
+  const canSwitchRole = hasClient && hasWorker && currentUser.role !== 'admin' && currentUser.role !== 'partner';
+  const canAddWorker = hasClient && !hasWorker;
+  const canAddClient = hasWorker && !hasClient;
+
+  const handleSwitchRole = (newRole: 'client' | 'worker') => {
+    setCurrentUser(prev => prev ? { ...prev, role: newRole } : null);
+    setIsDrawerOpen(false);
+  };
+
+  const handleAddRole = async (newRole: 'client' | 'worker') => {
+    if (!currentUser) return;
+    const newRoles = [...new Set([...(currentUser.allowed_roles || []), newRole])];
+    const { error } = await supabase.from('profiles').update({ allowed_roles: newRoles }).eq('id', currentUser.id);
+    if (error) { alert(error.message); return; }
+    setIsDrawerOpen(false);
+    sessionStorage.setItem(LOGIN_AS_KEY, newRole);
+    await fetchProfileAndSetUser(currentUser.id);
+    if (newRole === 'worker') {
+      const { data: p } = await supabase.from('profiles').select('specialty').eq('id', currentUser.id).single();
+      if (p && !p.specialty) setShowWorkerSpecialty(true);
+    }
+  };
+
   const DrawerMenu = () => (
       <div className="fixed inset-0 z-[100] flex">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)}></div>
           <div className="relative bg-white w-72 h-full shadow-2xl animate-fade-in flex flex-col">
               <div className="p-6 border-b border-slate-100 bg-orange-50/50">
                    <div className="flex items-center gap-3 mb-2">
-                       <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" />
+                       <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" alt="" />
                        <div className="min-w-0">
                            <p className="font-bold text-slate-800 text-lg truncate">{currentUser.name}</p>
                            <p className="text-xs text-slate-500 truncate">{currentUser.city || 'Local não definido'}</p>
@@ -768,7 +837,31 @@ export default function App() {
                        <Edit size={12}/> Editar Perfil
                    </button>
               </div>
-              <div className="flex-1 p-4 space-y-2">
+              <div className="flex-1 p-4 space-y-2 overflow-y-auto">
+                  {canSwitchRole && (
+                      <div className="bg-slate-50 rounded-xl p-3 mb-2 border border-slate-100">
+                          <p className="text-xs font-bold text-slate-500 uppercase mb-2">Usar conta como</p>
+                          <div className="flex gap-2">
+                              {currentUser.role === 'worker' && (
+                                  <button onClick={() => handleSwitchRole('client')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Cliente</button>
+                              )}
+                              {currentUser.role === 'client' && (
+                                  <button onClick={() => handleSwitchRole('worker')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Profissional</button>
+                              )}
+                          </div>
+                      </div>
+                  )}
+                  {(canAddWorker || canAddClient) && (
+                      <div className="bg-blue-50 rounded-xl p-3 mb-2 border border-blue-100">
+                          <p className="text-xs font-bold text-slate-600 mb-2">Adicionar outro perfil</p>
+                          {canAddWorker && (
+                              <button onClick={() => handleAddRole('worker')} className="w-full py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Também quero atuar como Profissional</button>
+                          )}
+                          {canAddClient && (
+                              <button onClick={() => handleAddRole('client')} className="w-full py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Também quero atuar como Cliente</button>
+                          )}
+                      </div>
+                  )}
                   <button onClick={() => { setCurrentPage('dashboard'); setIsDrawerOpen(false); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'dashboard' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
                       <Home size={20}/> Início
                   </button>
@@ -777,7 +870,6 @@ export default function App() {
                           <Store size={20}/> Lojas Parceiras
                       </button>
                   )}
-                  {/* AJUDA: Same handler as Mascot */}
                   <button onClick={() => { setShowHelp(true); setIsDrawerOpen(false); }} className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-slate-600 hover:bg-slate-50">
                       <HelpCircle size={20}/> Ajuda
                   </button>

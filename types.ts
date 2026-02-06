@@ -26,6 +26,9 @@ export interface User {
   suspicious_flag?: boolean;
   active?: boolean;
   punishment_until?: string | null;
+
+  /** Roles permitidos para esta conta (ex.: ['client'], ['worker'], ['client','worker']) */
+  allowed_roles?: UserRole[];
 }
 
 export interface ServiceCategory {
