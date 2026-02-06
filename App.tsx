@@ -812,7 +812,15 @@ export default function App() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showPointsModal, setShowPointsModal] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'partners'>('dashboard');
+  const [currentPage, setCurrentPageState] = useState<'dashboard' | 'partners'>(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const saved = localStorage.getItem('mao-de-obra-current-page');
+    return (saved === 'partners' ? 'partners' : 'dashboard');
+  });
+  const setCurrentPage = (page: 'dashboard' | 'partners') => {
+    setCurrentPageState(page);
+    if (typeof window !== 'undefined') localStorage.setItem('mao-de-obra-current-page', page);
+  };
   
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [showCompleteProfile, setShowCompleteProfile] = useState(false);
@@ -916,23 +924,35 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     
+    const applySession = async (session: { user: { id: string } } | null) => {
+      if (!session?.user || !isMounted) return;
+      await fetchProfileAndSetUser(session.user.id);
+      if (isMounted) setTimeout(() => checkPermissionsAndLocation(session.user.id), 1000);
+    };
+
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-          await fetchProfileAndSetUser(session.user.id);
-          setTimeout(() => checkPermissionsAndLocation(session.user.id), 1000);
+        await applySession(session);
+      } else {
+        const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+        if (refreshed?.user) await applySession(refreshed);
       }
       if (isMounted) setIsLoading(false);
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (event === 'SIGNED_IN' && session?.user && isMounted) {
-              await fetchProfileAndSetUser(session.user.id);
-              setTimeout(() => checkPermissionsAndLocation(session.user.id), 1000);
-          } else if (event === 'SIGNED_OUT' && isMounted) {
-              setCurrentUser(null);
-              setIsLoading(false);
-              setShowCompleteProfile(false);
-              setShowWorkerSpecialty(false);
+          if (!isMounted) return;
+          if (event === 'INITIAL_SESSION' && session?.user) {
+            await applySession(session);
+            setIsLoading(false);
+          } else if (event === 'SIGNED_IN' && session?.user) {
+            await fetchProfileAndSetUser(session.user.id);
+            setTimeout(() => checkPermissionsAndLocation(session.user.id), 1000);
+          } else if (event === 'SIGNED_OUT') {
+            setCurrentUser(null);
+            setIsLoading(false);
+            setShowCompleteProfile(false);
+            setShowWorkerSpecialty(false);
           }
       });
       return () => { subscription.unsubscribe(); };
