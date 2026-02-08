@@ -83,7 +83,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const [chatPartnerName, setChatPartnerName] = useState('');
   const [modalType, setModalType] = useState<'hire' | 'cancel' | 'rate' | 'audit' | null>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [hireTitle, setHireTitle] = useState('');
   const [hireDescription, setHireDescription] = useState('');
+  const [hireEstimatedHours, setHireEstimatedHours] = useState<number>(1);
   const [cancelReason, setCancelReason] = useState('');
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingDuration, setRatingDuration] = useState('');
@@ -259,7 +261,27 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   };
 
   // ... (Other handlers unchanged: confirmHireDirect, confirmRating, processCompletion, modals)
-  const confirmHireDirect = async () => { if (!selectedItem || !hireDescription.trim()) return showToast("Descreva o serviço.", 'error'); setLoading(true); const worker = selectedItem; const { error } = await supabase.from('jobs').insert({ title: `Serviço Direto: ${worker.full_name}`, description: hireDescription, client_id: user.id, worker_id: worker.id, status: 'pending', city: user.city, state: user.state, latitude: user.latitude, longitude: user.longitude, estimated_hours: estimatedHours }); if (error) { showToast(error.message, 'error'); } else { showToast(`Solicitação enviada para ${worker.full_name}!`, 'success'); closeModal(); setActiveTab('jobs'); fetchData(); } setLoading(false); };
+  const confirmHireDirect = async () => {
+    if (!selectedItem) return showToast("Selecione um profissional.", 'error');
+    if (!hireTitle.trim()) return showToast("Informe o título do serviço.", 'error');
+    if (!hireDescription.trim()) return showToast("Descreva o serviço.", 'error');
+    setLoading(true);
+    const worker = selectedItem;
+    const { error } = await supabase.from('jobs').insert({
+      title: hireTitle.trim(),
+      description: hireDescription.trim(),
+      client_id: user.id,
+      worker_id: worker.id,
+      status: 'pending',
+      city: user.city,
+      state: user.state,
+      latitude: user.latitude,
+      longitude: user.longitude,
+      estimated_hours: hireEstimatedHours
+    });
+    if (error) { showToast(error.message, 'error'); } else { showToast(`Solicitação enviada para ${worker.full_name}!`, 'success'); closeModal(); setActiveTab('jobs'); fetchData(); }
+    setLoading(false);
+  };
   const confirmRating = async () => { if(selectedItem?.isAudited) { setModalType('audit'); return; } await processCompletion(); };
   const processCompletion = async (auditAnswers?: {q1: string, q2: string}) => {
     if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error');
@@ -303,7 +325,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     setWorkerReviews(data || []);
   };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
-  const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireDescription(''); };
+  const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireTitle(''); setHireDescription(''); setHireEstimatedHours(1); };
   const openCancelModal = (job: any) => { setSelectedItem(job); setModalType('cancel'); setCancelReason(''); };
   const confirmCancelJob = async () => { if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoading(true); const jobId = selectedItem.id; const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', jobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoading(false); };
 
@@ -515,11 +537,34 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
       )}
 
       {modalType === 'hire' && selectedItem && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
-               <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
-                   <h3 className="text-lg font-bold text-slate-800 mb-2">Contratar</h3>
-                   <textarea className="w-full p-3 bg-slate-100 rounded-lg text-sm mb-4 outline-none" placeholder="Descrição..." rows={3} value={hireDescription} onChange={e => setHireDescription(e.target.value)} />
-                   <div className="flex gap-2"><Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button><Button fullWidth onClick={confirmHireDirect} disabled={loading}>Enviar</Button></div>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in overflow-y-auto">
+               <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl my-auto">
+                   <h3 className="text-lg font-bold text-slate-800 mb-4">Contratar {selectedItem.full_name}</h3>
+                   <div className="space-y-4 mb-4">
+                     <div>
+                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Título do serviço</label>
+                       <input className="w-full p-3 bg-slate-50 border rounded-lg outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Ex: Consertar pia da cozinha" value={hireTitle} onChange={e => setHireTitle(e.target.value)} />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Descrição do serviço</label>
+                       <textarea className="w-full p-3 bg-slate-50 border rounded-lg outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Descreva o que precisa ser feito..." rows={3} value={hireDescription} onChange={e => setHireDescription(e.target.value)} />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tempo estimado</label>
+                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                         {[
+                           { h: 1, label: '1h' },
+                           { h: 2, label: '2h' },
+                           { h: 4, label: '4h' },
+                           { h: 8, label: '8h' },
+                           { h: 24, label: 'Mais de 1 dia' }
+                         ].map(({ h, label }) => (
+                           <button key={h} type="button" onClick={() => setHireEstimatedHours(h)} className={`py-2 rounded-lg font-bold text-sm border transition-colors ${hireEstimatedHours === h ? 'bg-brand-orange text-white border-brand-orange' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>{label}</button>
+                         ))}
+                       </div>
+                     </div>
+                   </div>
+                   <div className="flex gap-2"><Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button><Button fullWidth onClick={confirmHireDirect} disabled={loading || !hireTitle.trim() || !hireDescription.trim()}>Enviar Proposta</Button></div>
                </div>
           </div>
       )}

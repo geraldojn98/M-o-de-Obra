@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store } from 'lucide-react';
+
+const LEVEL_STYLES: Record<string, { border: string; badge: string; label: string }> = {
+  bronze: { border: 'border-amber-800/80 shadow-amber-900/30', badge: 'bg-amber-800 text-amber-100', label: 'Bronze' },
+  silver: { border: 'border-slate-400 shadow-slate-500/30', badge: 'bg-slate-500 text-white', label: 'Prata' },
+  gold: { border: 'border-amber-400 shadow-amber-500/40', badge: 'bg-amber-400 text-amber-900', label: 'Ouro' },
+  diamond: { border: 'border-cyan-400 shadow-cyan-500/40', badge: 'bg-cyan-400 text-cyan-900', label: 'Diamante' },
+};
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 
@@ -169,6 +176,18 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
         const active = parsedJobs.find((j: any) => j.status === 'in_progress' || j.status === 'waiting_verification');
         setHasActiveJob(!!active);
     }
+  };
+
+  const handleRefuseDirectProposal = async (jobId: string) => {
+    if (!confirm('Recusar esta proposta? O cliente será informado e o serviço voltará a ficar disponível para outros profissionais.')) return;
+    setLoadingAction(true);
+    const { error } = await supabase.from('jobs').update({ worker_id: null }).eq('id', jobId);
+    if (error) showToast(error.message, 'error');
+    else {
+      showToast('Proposta recusada.', 'success');
+      await fetchData();
+    }
+    setLoadingAction(false);
   };
 
   const handleAcceptJob = async (jobId: string) => {
@@ -350,6 +369,20 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
            </div>
        )}
        
+       {/* PROFILE HEADER COM NÍVEL */}
+       <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+            <div className={`w-14 h-14 rounded-full p-1.5 shadow-md flex items-center justify-center ${LEVEL_STYLES[user.level || 'bronze']?.border || LEVEL_STYLES.bronze.border} border-2 bg-white shrink-0`}>
+                <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover bg-slate-200" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <p className="font-black text-slate-800 truncate">{user.name}</p>
+                <p className="text-xs text-slate-500 truncate">{user.specialty || 'Profissional'}</p>
+                <span className={`inline-block mt-1 px-2 py-0.5 rounded-lg text-xs font-bold ${LEVEL_STYLES[user.level || 'bronze']?.badge || LEVEL_STYLES.bronze.badge}`}>
+                    {LEVEL_STYLES[user.level || 'bronze']?.label || 'Bronze'}
+                </span>
+            </div>
+       </div>
+
        {/* DAILY CAP BANNER */}
        {todayPoints >= POINTS_RULES.WORKER_DAILY_CAP && (
            <div className="bg-red-100 text-red-700 p-4 rounded-xl flex items-center gap-3 border border-red-200 shadow-sm animate-pulse">
@@ -383,11 +416,13 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
                    <p className="text-slate-500">Nenhum serviço disponível em {user.city}.</p>
                </div>
            )}
-           {availableJobs.map(job => (
-             <div key={job.id} className={`bg-white p-5 rounded-xl border shadow-sm transition-shadow ${job.workerId === user.id ? 'border-brand-blue ring-1 ring-brand-blue' : 'border-slate-200'}`}>
+           {availableJobs.map(job => {
+             const isDirectProposal = job.workerId === user.id;
+             return (
+             <div key={job.id} className={`bg-white p-5 rounded-xl border shadow-sm transition-shadow ${isDirectProposal ? 'border-brand-blue ring-1 ring-brand-blue' : 'border-slate-200'}`}>
                <div className="flex justify-between items-start mb-2">
                  <div>
-                   {job.workerId === user.id && <span className="bg-brand-blue text-white text-[10px] px-2 py-0.5 rounded-full mb-1 inline-block">Proposta Direta</span>}
+                   {isDirectProposal && <span className="bg-brand-blue text-white text-[10px] px-2 py-0.5 rounded-full mb-1 inline-block">Proposta Direta</span>}
                    <h3 className="font-bold text-lg text-slate-900">{job.title}</h3>
                    <div className="flex items-center gap-2 mt-1">
                        <span className="bg-blue-50 text-blue-700 text-xs font-bold px-2 py-0.5 rounded border border-blue-100 flex items-center gap-1"><Clock size={12}/> {job.estimatedHours}h estimadas</span>
@@ -400,9 +435,19 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
                    <span>{job.clientName}</span>
                    {job.city && <span className="flex items-center gap-1"><MapPin size={10}/> {job.city}</span>}
                </div>
-               <Button fullWidth onClick={() => handleAcceptJob(job.id)} disabled={isPunished || hasActiveJob || loadingAction}>{loadingAction ? 'Processando...' : (isPunished ? 'Conta suspensa' : hasActiveJob ? 'Indisponível' : 'Aceitar Serviço')}</Button>
+               {isDirectProposal ? (
+                 <div className="flex flex-col gap-2">
+                   <div className="flex gap-2">
+                     <Button fullWidth onClick={() => handleAcceptJob(job.id)} disabled={isPunished || hasActiveJob || loadingAction}>{loadingAction ? 'Processando...' : (isPunished ? 'Conta suspensa' : hasActiveJob ? 'Indisponível' : 'Aceitar')}</Button>
+                     <Button variant="danger" fullWidth onClick={() => handleRefuseDirectProposal(job.id)} disabled={loadingAction}>Recusar</Button>
+                   </div>
+                   <Button variant="secondary" fullWidth onClick={() => openChat(job.id, job.clientName)} className="flex items-center justify-center gap-2"><MessageCircle size={18} /> Chat</Button>
+                 </div>
+               ) : (
+                 <Button fullWidth onClick={() => handleAcceptJob(job.id)} disabled={isPunished || hasActiveJob || loadingAction}>{loadingAction ? 'Processando...' : (isPunished ? 'Conta suspensa' : hasActiveJob ? 'Indisponível' : 'Aceitar Serviço')}</Button>
+               )}
              </div>
-           ))}
+           );})}
 
            {/* COUPONS BANNER (Below Jobs) */}
            {featuredCoupons.length > 0 && (

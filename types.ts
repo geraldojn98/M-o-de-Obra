@@ -29,6 +29,9 @@ export interface User {
 
   /** Roles permitidos para esta conta (ex.: ['client'], ['worker'], ['client','worker']) */
   allowed_roles?: UserRole[];
+
+  /** Nível de carreira (worker): bronze, silver, gold, diamond */
+  level?: 'bronze' | 'silver' | 'gold' | 'diamond';
 }
 
 export interface ServiceCategory {
