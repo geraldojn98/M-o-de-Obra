@@ -10,23 +10,39 @@ import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 
 type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
 
+const LEVELS = [
+    { id: 'bronze', label: 'Bronze', class: 'bg-amber-800 text-amber-100' },
+    { id: 'silver', label: 'Prata', class: 'bg-slate-500 text-white' },
+    { id: 'gold', label: 'Ouro', class: 'bg-amber-400 text-amber-900' },
+    { id: 'diamond', label: 'Diamante', class: 'bg-cyan-400 text-cyan-900' },
+] as const;
+
 const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => void }> = ({ user, onClose, onSave }) => {
     const [name, setName] = useState(user.full_name || '');
     const [points, setPoints] = useState<number>(user.points || 0);
     const [role, setRole] = useState(user.allowed_roles?.[0] || 'client');
+    const [level, setLevel] = useState<string>(user.level || 'bronze');
+    const [levelOverride, setLevelOverride] = useState<boolean>(!!user.level_admin_override);
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+
+    const isWorker = role === 'worker';
 
     const handleSave = async () => {
         setLoading(true);
         setErrorMsg('');
         
         try {
-            const { error } = await supabase.from('profiles').update({ 
+            const updates: Record<string, unknown> = { 
                 full_name: name, 
                 points: points, 
                 allowed_roles: [role] 
-            }).eq('id', user.id);
+            };
+            if (isWorker) {
+                updates.level = level;
+                updates.level_admin_override = levelOverride;
+            }
+            const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
             
             if (error) throw error;
             
@@ -85,6 +101,33 @@ const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => vo
                             </p>
                         )}
                     </div>
+
+                    {isWorker && (
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-3">
+                                Nível do Profissional
+                            </label>
+                            <p className="text-[11px] text-slate-500 mb-3">
+                                O admin define o nível. Se &quot;Admin define&quot; estiver ativo, o sistema não recalculará automaticamente.
+                            </p>
+                            <div className="flex gap-2 mb-3 flex-wrap">
+                                {LEVELS.map(l => (
+                                    <button
+                                        key={l.id}
+                                        type="button"
+                                        onClick={() => setLevel(l.id)}
+                                        className={`px-3 py-2 rounded-xl text-xs font-bold transition ${level === l.id ? l.class : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                    >
+                                        {l.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={levelOverride} onChange={e => setLevelOverride(e.target.checked)} className="rounded border-slate-300" />
+                                <span className="text-xs font-bold text-slate-600">Admin define (não recalcular automaticamente)</span>
+                            </label>
+                        </div>
+                    )}
 
                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                         <label className="text-xs font-bold text-slate-400 uppercase block mb-3">Saldo de Pontos</label>
@@ -368,7 +411,7 @@ export const AdminDashboard: React.FC = () => {
                               <img src={u.avatar_url} className="w-12 h-12 rounded-2xl bg-slate-100 shrink-0"/>
                               <div className="min-w-0">
                                   <p className="font-black text-slate-800 truncate text-sm">{u.full_name}</p>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                       <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
                                           u.allowed_roles?.includes('admin') ? 'bg-red-100 text-red-600' :
                                           u.allowed_roles?.includes('partner') ? 'bg-purple-100 text-purple-600' :
@@ -377,6 +420,16 @@ export const AdminDashboard: React.FC = () => {
                                       }`}>
                                           {u.allowed_roles?.[0]}
                                       </span>
+                                      {u.allowed_roles?.includes('worker') && (
+                                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                              u.level === 'diamond' ? 'bg-cyan-400/30 text-cyan-800' :
+                                              u.level === 'gold' ? 'bg-amber-400/30 text-amber-800' :
+                                              u.level === 'silver' ? 'bg-slate-400/30 text-slate-700' :
+                                              'bg-amber-800/30 text-amber-900'
+                                          }`} title={u.level_admin_override ? 'Nível definido pelo admin' : ''}>
+                                              {u.level === 'diamond' ? '◆Diamante' : u.level === 'gold' ? '★Ouro' : u.level === 'silver' ? '●Prata' : '◆Bronze'}
+                                          </span>
+                                      )}
                                       <span className="text-[10px] text-slate-400 font-bold">{u.points} pts</span>
                                   </div>
                               </div>

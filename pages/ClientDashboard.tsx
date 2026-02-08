@@ -4,6 +4,8 @@ import { Button } from '../components/Button';
 import * as Icons from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
+import { StarRatingDisplay } from '../components/StarRatingDisplay';
+import { WorkerProfileModal } from '../components/WorkerProfileModal';
 
 interface ClientDashboardProps {
   user: User;
@@ -85,6 +87,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const [cancelReason, setCancelReason] = useState('');
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingDuration, setRatingDuration] = useState('');
+  const [ratingComment, setRatingComment] = useState('');
+  const [profileModalWorker, setProfileModalWorker] = useState<any>(null);
+  const [workerReviews, setWorkerReviews] = useState<any[]>([]);
 
   const [showCameraPermission, setShowCameraPermission] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -258,9 +263,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const confirmRating = async () => { if(selectedItem?.isAudited) { setModalType('audit'); return; } await processCompletion(); };
   const processCompletion = async (auditAnswers?: {q1: string, q2: string}) => {
     if (!selectedItem || !ratingDuration) return showToast("Informe o tempo de duração.", 'error');
+    if (!ratingComment.trim()) return showToast("O comentário da avaliação é obrigatório.", 'error');
     setLoading(true);
     const job = selectedItem;
-    const updates: any = { status: 'completed', rating: ratingScore, duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', completed_at: new Date().toISOString() };
+    const updates: any = { status: 'completed', rating: ratingScore, review_comment: ratingComment.trim(), duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', completed_at: new Date().toISOString() };
     if (auditAnswers) {
       updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 };
       await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', user.id);
@@ -275,9 +281,27 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     fetchData();
     setLoading(false);
   };
-  const openRatingModal = (job: any) => { setSelectedItem(job); setModalType('rate'); setRatingScore(5); setRatingDuration(''); setCapturedImage(null); stopCamera(); };
-  const closeModal = () => { setModalType(null); setSelectedItem(null); stopCamera(); setShowCameraPermission(false); };
-  const fetchWorkersByCategory = async (category: string) => { setLoading(true); setSelectedCategory(category); let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']).ilike('specialty', `%${category}%`); if (user.city) query = query.ilike('city', user.city); const { data } = await query; setWorkers(data || []); setLoading(false); };
+  const openRatingModal = (job: any) => { setSelectedItem(job); setModalType('rate'); setRatingScore(5); setRatingDuration(''); setRatingComment(''); setCapturedImage(null); stopCamera(); };
+  const closeModal = () => { setModalType(null); setSelectedItem(null); stopCamera(); setShowCameraPermission(false); setRatingComment(''); };
+  const LEVEL_ORDER: Record<string, number> = { diamond: 4, gold: 3, silver: 2, bronze: 1 };
+  const fetchWorkersByCategory = async (category: string) => {
+    setLoading(true); setSelectedCategory(category);
+    let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']).ilike('specialty', `%${category}%`);
+    if (user.city) query = query.ilike('city', user.city);
+    const { data } = await query;
+    const list = (data || []).sort((a, b) => {
+      const levelA = LEVEL_ORDER[a.level || 'bronze'] ?? 0;
+      const levelB = LEVEL_ORDER[b.level || 'bronze'] ?? 0;
+      if (levelB !== levelA) return levelB - levelA;
+      return (b.rating ?? 0) - (a.rating ?? 0);
+    });
+    setWorkers(list); setLoading(false);
+  };
+  const openProfileModal = async (worker: any) => {
+    setProfileModalWorker(worker);
+    const { data } = await supabase.from('jobs').select('id, rating, review_comment, title, created_at').eq('worker_id', worker.id).eq('status', 'completed').not('rating', 'is', null).order('created_at', { ascending: false }).limit(20);
+    setWorkerReviews(data || []);
+  };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
   const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireDescription(''); };
   const openCancelModal = (job: any) => { setSelectedItem(job); setModalType('cancel'); setCancelReason(''); };
@@ -431,16 +455,30 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                             ))}
                         </div>
                     ) : (
-                        workers.map(w => (
-                                <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
-                                    <img src={w.avatar_url} className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="font-bold truncate">{w.full_name}</h4>
-                                        <p className="text-xs text-slate-500 truncate">{w.specialty}</p>
-                                    </div>
-                                    <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>
+                        workers.map(w => {
+                          const level = w.level || 'bronze';
+                          const levelBorder = level === 'diamond' ? 'border-2 border-cyan-400' : level === 'gold' ? 'border-2 border-amber-400' : level === 'silver' ? 'border-2 border-slate-400' : 'border-2 border-amber-800/60';
+                          const levelBadge = level === 'diamond' ? 'bg-cyan-400 text-cyan-900' : level === 'gold' ? 'bg-amber-400 text-amber-900' : level === 'silver' ? 'bg-slate-500 text-white' : 'bg-amber-800 text-amber-100';
+                          return (
+                            <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+                              <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full">
+                                <img src={w.avatar_url} alt="" className={`w-12 h-12 rounded-full bg-slate-200 object-cover ${levelBorder}`} />
+                              </button>
+                              <button type="button" onClick={() => openProfileModal(w)} className="flex-1 min-w-0 text-left focus:outline-none focus:ring-0">
+                                <h4 className="font-bold truncate hover:text-brand-orange transition-colors">{w.full_name}</h4>
+                                <p className="text-xs text-slate-500 truncate">{w.specialty}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <StarRatingDisplay rating={w.rating ?? 0} size={14} />
+                                  <span className="text-xs font-bold text-slate-600">{(w.rating ?? 0).toFixed(1)}</span>
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${levelBadge}`} title={`Nível: ${level === 'diamond' ? 'Diamante' : level === 'gold' ? 'Ouro' : level === 'silver' ? 'Prata' : 'Bronze'}`}>
+                                    {level === 'diamond' ? 'Diam' : level === 'gold' ? 'Ouro' : level === 'silver' ? 'Prat' : 'Bron'}
+                                  </span>
                                 </div>
-                        ))
+                              </button>
+                              <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>
+                            </div>
+                          );
+                        })
                     )}
                 </div>
             )}
@@ -493,7 +531,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                         {[1,2,3,4,5].map(s => (<button key={s} onClick={() => setRatingScore(s)} className={`text-3xl ${s <= ratingScore ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>))}
                     </div>
                     <div><label className="block text-sm font-bold text-slate-700 mb-1">Duração Real (Horas)</label><input type="number" value={ratingDuration} onChange={e => setRatingDuration(e.target.value)} className="w-full border rounded p-3" placeholder="Ex: 2.5" /></div>
-                  <div className="flex gap-2 pt-2"><Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button><Button fullWidth onClick={() => confirmRating()} disabled={loading}>Confirmar</Button></div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Comentário <span className="text-red-500">*</span></label>
+                      <textarea value={ratingComment} onChange={e => setRatingComment(e.target.value)} className="w-full border rounded p-3 outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Como foi o serviço? Deixe um comentário..." rows={3} required />
+                    </div>
+                  <div className="flex gap-2 pt-2"><Button variant="outline" fullWidth onClick={closeModal}>Voltar</Button><Button fullWidth onClick={() => confirmRating()} disabled={loading || !ratingComment.trim()}>Confirmar</Button></div>
               </div>
           </div>
       )}
@@ -511,6 +553,14 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
           </div>
       )}
       {activeChatJobId && <ChatWindow jobId={activeChatJobId} currentUser={user} otherUserName={chatPartnerName} onClose={() => setActiveChatJobId(null)} />}
+      {profileModalWorker && (
+        <WorkerProfileModal
+          worker={profileModalWorker}
+          reviews={workerReviews}
+          onHire={() => { setProfileModalWorker(null); openHireModal(profileModalWorker); }}
+          onClose={() => { setProfileModalWorker(null); setWorkerReviews([]); }}
+        />
+      )}
     </div>
   );
 };
