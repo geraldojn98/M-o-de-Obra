@@ -87,6 +87,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const portfolioInputRef = useRef<HTMLInputElement>(null);
+  const portfolioCameraRef = useRef<HTMLInputElement>(null);
 
   const [appealModalOpen, setAppealModalOpen] = useState(false);
   const [appealText, setAppealText] = useState('');
@@ -624,9 +625,15 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
        {activeTab === 'portfolio' && (
            <div className="animate-fade-in pb-20 space-y-4">
              <input ref={portfolioInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={handlePortfolioImageSelect} />
-             <Button type="button" onClick={() => portfolioInputRef.current?.click()} disabled={portfolioUploading} className="w-full flex items-center justify-center gap-2">
-               <ImagePlus size={18} /> {portfolioUploading ? 'Enviando...' : 'Adicionar foto ao portfólio'}
-             </Button>
+             <input ref={portfolioCameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePortfolioImageSelect} />
+             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+               <Button type="button" onClick={() => portfolioInputRef.current?.click()} disabled={portfolioUploading} className="w-full flex items-center justify-center gap-2" variant="outline">
+                 <ImagePlus size={18} /> {portfolioUploading ? 'Enviando...' : 'Escolher do dispositivo'}
+               </Button>
+               <Button type="button" onClick={() => portfolioCameraRef.current?.click()} disabled={portfolioUploading} className="w-full flex items-center justify-center gap-2">
+                 <Camera size={18} /> {portfolioUploading ? 'Enviando...' : 'Tirar foto agora'}
+               </Button>
+             </div>
              {portfolioItems.length === 0 ? (
                <EmptyState icon={ImagePlus} title="Nenhuma foto no portfólio" description="Adicione fotos dos seus trabalhos para clientes verem." />
              ) : (
