@@ -924,6 +924,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
           <div className="flex items-center gap-3">
+            <button onClick={() => navigate(auth.isGuest ? '/client' : roleToPath(auth.effectiveUser.role))} className="p-2 rounded-xl text-slate-500 hover:text-brand-orange hover:bg-orange-50 transition-colors" title="Início" aria-label="Início">
+              <Home size={22} />
+            </button>
             {auth.isGuest ? (
               <div className="flex items-center gap-2">
                 <span className="font-bold text-slate-600 text-sm">Visitante</span>
