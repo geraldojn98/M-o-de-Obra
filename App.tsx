@@ -997,6 +997,12 @@ export default function App() {
     return () => { isMounted = false; };
   }, []);
 
+  const effectiveUser = currentUser || GUEST_USER;
+  const isGuest = !currentUser && isGuestMode;
+  useEffect(() => {
+    if (currentUser || isGuestMode) window.history.replaceState({ page: currentPage }, '', window.location.href);
+  }, [currentUser, isGuestMode, currentPage]);
+
   const checkPermissionsAndLocation = async (userId: string) => {
       if ("geolocation" in navigator) {
           navigator.permissions.query({ name: 'geolocation' }).then(result => {
@@ -1060,13 +1066,6 @@ export default function App() {
         <Footer />
       </div>
   );
-
-  const effectiveUser = currentUser || GUEST_USER;
-  const isGuest = !currentUser && isGuestMode;
-
-  useEffect(() => {
-    if (currentUser || isGuestMode) window.history.replaceState({ page: currentPage }, '', window.location.href);
-  }, [currentUser, isGuestMode, currentPage]);
 
   if (!currentUser && !isGuestMode) return (
       <LoginPage
