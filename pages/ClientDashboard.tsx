@@ -301,7 +301,16 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     if (!ratingComment.trim()) return showToast("O comentário da avaliação é obrigatório.", 'error');
     setLoading(true);
     const job = selectedItem;
-    const updates: any = { status: 'completed', rating: ratingScore, review_comment: ratingComment.trim(), duration_hours: parseFloat(ratingDuration), client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', completed_at: new Date().toISOString() };
+    const updates: any = { 
+      status: 'completed', 
+      rating: ratingScore, 
+      review_comment: ratingComment.trim(), 
+      duration_hours: parseFloat(ratingDuration), 
+      client_evidence_url: capturedImage || 'https://via.placeholder.com/300?text=No+Photo', 
+      completed_at: new Date().toISOString(),
+      // Apagar a foto do profissional após avaliação
+      worker_evidence_url: null
+    };
     if (auditAnswers) {
       updates.audit_data = { ...job.auditData, client_q1: auditAnswers.q1, client_q2: auditAnswers.q2 };
       await supabase.from('profiles').update({ suspicious_flag: true }).eq('id', user.id);
@@ -602,6 +611,22 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in overflow-y-auto">
               <div className="bg-white rounded-xl w-full max-w-sm p-6 space-y-4 my-auto">
                   <h3 className="text-lg font-bold text-slate-800">Avaliar Serviço</h3>
+                  
+                  {/* Foto do profissional */}
+                  {selectedItem?.workerEvidence && (
+                    <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                      <p className="text-xs font-bold text-slate-600 mb-2 uppercase">Foto do Serviço Finalizado</p>
+                      <div className="relative w-full aspect-video bg-slate-100 rounded-lg overflow-hidden">
+                        <img 
+                          src={selectedItem.workerEvidence} 
+                          alt="Foto do serviço finalizado pelo profissional" 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">Foto enviada pelo profissional ao finalizar o serviço</p>
+                    </div>
+                  )}
+                  
                   <div className="flex justify-center gap-2 my-4">
                         {[1,2,3,4,5].map(s => (<button key={s} onClick={() => setRatingScore(s)} className={`text-3xl ${s <= ratingScore ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>))}
                     </div>
