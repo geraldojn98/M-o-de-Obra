@@ -7,6 +7,7 @@ import { ChatWindow } from '../components/ChatWindow';
 import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import { WorkerProfileModal } from '../components/WorkerProfileModal';
 import { LevelBadge } from '../components/LevelBadge';
+import * as NotificationService from '../services/notifications';
 
 interface ClientDashboardProps {
   user: User;
@@ -251,8 +252,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
 
     if (error) {
         showToast(error.message, 'error');
-    } else {
+    } else if (insertedJob) {
         showToast('Pedido publicado com sucesso!', 'success');
+        // Notificar todos os profissionais sobre o novo pedido
+        await NotificationService.notifyWorkersNewJob(insertedJob.id, jobTitle, user.name, user.city);
         setJobTitle(''); setJobDesc(''); setJobPrice(''); setEstimatedHours(1);
         setSelectedCategories([]); setOtherCategoryInput(''); setIsAllCategories(true);
         setViewMode('selection');
@@ -268,7 +271,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     if (!hireDescription.trim()) return showToast("Descreva o serviço.", 'error');
     setLoading(true);
     const worker = selectedItem;
-    const { error } = await supabase.from('jobs').insert({
+    const { data: insertedJob, error } = await supabase.from('jobs').insert({
       title: hireTitle.trim(),
       description: hireDescription.trim(),
       client_id: user.id,
@@ -279,8 +282,17 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
       latitude: user.latitude,
       longitude: user.longitude,
       estimated_hours: hireEstimatedHours
-    });
-    if (error) { showToast(error.message, 'error'); } else { showToast(`Solicitação enviada para ${worker.full_name}!`, 'success'); closeModal(); setActiveTab('jobs'); fetchData(); }
+    }).select().single();
+    if (error) { 
+      showToast(error.message, 'error'); 
+    } else { 
+      showToast(`Solicitação enviada para ${worker.full_name}!`, 'success');
+      // Notificar o profissional sobre a proposta direta
+      await NotificationService.notifyClientJobAccepted(worker.id, user.name, hireTitle.trim(), insertedJob.id);
+      closeModal(); 
+      setActiveTab('jobs'); 
+      fetchData(); 
+    }
     setLoading(false);
   };
   const confirmRating = async () => { if(selectedItem?.isAudited) { setModalType('audit'); return; } await processCompletion(); };
@@ -298,7 +310,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     if (pointsError) { await supabase.from('profiles').update({ points: user.points + POINTS_RULES.CLIENT_FIXED }).eq('id', user.id); }
     const { error: jobError } = await supabase.from('jobs').update(updates).eq('id', job.id);
     if (jobError) { showToast(jobError.message, 'error'); setLoading(false); return; }
-    if (job.workerId) { await supabase.from('notifications').insert({ user_id: job.workerId, title: 'Serviço Confirmado!', message: `O cliente confirmou o serviço.`, type: 'job_update', action_link: JSON.stringify({ screen: 'history' }) }); }
+    // Notificar o profissional sobre a confirmação e avaliação
+    if (job.workerId && job.workerName) {
+      await NotificationService.notifyWorkerJobCompleted(job.workerId, user.name, job.title, ratingScore);
+    }
     showToast("Avaliação enviada!", 'success');
     closeModal();
     fetchData();
@@ -328,7 +343,23 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
   const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireTitle(''); setHireDescription(''); setHireEstimatedHours(1); };
   const openCancelModal = (job: any) => { setSelectedItem(job); setModalType('cancel'); setCancelReason(''); };
-  const confirmCancelJob = async () => { if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoading(true); const jobId = selectedItem.id; const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', jobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoading(false); };
+  const confirmCancelJob = async () => {
+    if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error');
+    setLoading(true);
+    const job = selectedItem;
+    const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', job.id);
+    if (error) {
+      showToast(error.message, 'error');
+    } else {
+      // Notificar o profissional sobre o cancelamento
+      if (job.workerId && job.workerName) {
+        await NotificationService.notifyWorkerJobCancelled(job.workerId, user.name, job.title, cancelReason);
+      }
+      closeModal();
+      fetchData();
+    }
+    setLoading(false);
+  };
 
   const openAppealModal = async () => {
     const { data: byClient } = await supabase.from('jobs').select('id').eq('client_id', user.id).eq('admin_verdict', 'punished').limit(1).maybeSingle();

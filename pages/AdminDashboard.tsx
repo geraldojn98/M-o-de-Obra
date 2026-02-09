@@ -9,6 +9,7 @@ import {
 import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 import { LevelBadge } from '../components/LevelBadge';
 import { StarRatingDisplay } from '../components/StarRatingDisplay';
+import * as NotificationService from '../services/notifications';
 
 type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
 
@@ -35,18 +36,46 @@ const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => vo
         setErrorMsg('');
         
         try {
-            const updates: Record<string, unknown> = { 
-                full_name: name, 
-                points: points, 
-                allowed_roles: [role] 
-            };
-            if (isWorker) {
-                updates.level = level;
-                updates.level_admin_override = levelOverride;
+            const changes: string[] = [];
+            const updates: Record<string, unknown> = {};
+            
+            if (name !== user.full_name) {
+                updates.full_name = name;
+                changes.push('nome');
             }
+            if (points !== user.points) {
+                updates.points = points;
+                changes.push(`pontos (${user.points} → ${points})`);
+            }
+            if (role !== user.allowed_roles?.[0]) {
+                updates.allowed_roles = [role];
+                changes.push(`permissão (${user.allowed_roles?.[0]} → ${role})`);
+            }
+            if (isWorker) {
+                if (level !== (user.level || 'bronze')) {
+                    updates.level = level;
+                    changes.push(`nível (${user.level || 'bronze'} → ${level})`);
+                }
+                if (levelOverride !== !!user.level_admin_override) {
+                    updates.level_admin_override = levelOverride;
+                    changes.push(levelOverride ? 'nível definido pelo admin' : 'nível automático');
+                }
+            }
+            
+            if (Object.keys(updates).length === 0) {
+                onClose();
+                setLoading(false);
+                return;
+            }
+            
             const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
             
             if (error) throw error;
+            
+            // Notificar o usuário sobre as mudanças
+            if (changes.length > 0) {
+                await NotificationService.notifyUserProfileUpdated(user.id, changes);
+            }
             
             onSave();
             onClose();
@@ -354,12 +383,29 @@ export const AdminDashboard: React.FC = () => {
     setLoading(true);
     try {
       await supabase.from('profiles').update({ suspicious_flag: false }).eq('id', job.client_id);
-      if (job.worker_id) await supabase.from('profiles').update({ suspicious_flag: false }).eq('id', job.worker_id);
+      await NotificationService.createNotification({
+        userId: job.client_id,
+        title: 'Caso Absolvido',
+        message: 'O caso foi analisado e absolvido. Os pontos foram validados.',
+        type: 'admin_action',
+      });
+      
+      if (job.worker_id) {
+        await supabase.from('profiles').update({ suspicious_flag: false }).eq('id', job.worker_id);
+        await NotificationService.createNotification({
+          userId: job.worker_id,
+          title: 'Caso Absolvido',
+          message: 'O caso foi analisado e absolvido. Os pontos foram validados.',
+          type: 'admin_action',
+        });
+      }
+      
       const pointsToAward = (job.estimated_hours || 1) * POINTS_RULES.WORKER_PER_HOUR;
       await supabase.from('jobs').update({
         admin_verdict: 'absolved',
         points_awarded: pointsToAward
       }).eq('id', job.id);
+      
       if (job.worker_id) {
         const { data: prof } = await supabase.from('profiles').select('points').eq('id', job.worker_id).single();
         if (prof) await supabase.from('profiles').update({ points: (prof.points || 0) + pointsToAward }).eq('id', job.worker_id);
@@ -379,7 +425,13 @@ export const AdminDashboard: React.FC = () => {
       const until = new Date();
       until.setDate(until.getDate() + 7);
       await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.client_id);
-      if (job.worker_id) await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.worker_id);
+      await NotificationService.notifyUserBanned(job.client_id, '7days', until.toISOString());
+      
+      if (job.worker_id) {
+        await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.worker_id);
+        await NotificationService.notifyUserBanned(job.worker_id, '7days', until.toISOString());
+      }
+      
       await supabase.from('jobs').update({ admin_verdict: 'punished', points_awarded: 0 }).eq('id', job.id);
       fetchData();
     } catch (e: any) {
@@ -395,6 +447,7 @@ export const AdminDashboard: React.FC = () => {
     try {
       await supabase.from('profiles').update({ active: true, punishment_until: null }).eq('id', appeal.user_id);
       await supabase.from('punishment_appeals').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', appeal.id);
+      await NotificationService.notifyAppealApproved(appeal.user_id);
       fetchData();
     } catch (e: any) {
       alert('Erro: ' + e.message);
@@ -408,6 +461,7 @@ export const AdminDashboard: React.FC = () => {
     setLoading(true);
     try {
       await supabase.from('punishment_appeals').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', appeal.id);
+      await NotificationService.notifyAppealRejected(appeal.user_id);
       fetchData();
     } catch (e: any) {
       alert('Erro: ' + e.message);
@@ -1236,6 +1290,7 @@ export const AdminDashboard: React.FC = () => {
                                       setLoading(true);
                                       try {
                                           await supabase.from('profiles').update({ active: true, punishment_until: null }).eq('id', userDetails.id);
+                                          await NotificationService.notifyUserUnbanned(userDetails.id);
                                           alert('Banimento removido com sucesso!');
                                           setShowBanModal(false);
                                           setBanType(null);
@@ -1252,7 +1307,23 @@ export const AdminDashboard: React.FC = () => {
                                   Remover Banimento
                               </button>
                               <button
-                                  onClick={() => setBanType('indefinite')}
+                                  onClick={async () => {
+                                      if (!confirm('Alterar para banimento indefinido?')) return;
+                                      setLoading(true);
+                                      try {
+                                          await supabase.from('profiles').update({ active: false, punishment_until: null }).eq('id', userDetails.id);
+                                          await NotificationService.notifyUserBanned(userDetails.id, 'indefinite');
+                                          alert('Banimento alterado para indefinido!');
+                                          setShowBanModal(false);
+                                          setBanType(null);
+                                          await fetchUserDetails(userDetails.id);
+                                          fetchData();
+                                      } catch (e: any) {
+                                          alert('Erro: ' + e.message);
+                                      } finally {
+                                          setLoading(false);
+                                      }
+                                  }}
                                   className="w-full p-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors"
                               >
                                   Alterar para Banimento Indefinido
@@ -1303,6 +1374,9 @@ export const AdminDashboard: React.FC = () => {
                                               active: false, 
                                               punishment_until: until 
                                           }).eq('id', userDetails.id);
+                                          
+                                          // Notificar o usuário sobre o banimento
+                                          await NotificationService.notifyUserBanned(userDetails.id, banType, until || undefined);
                                           
                                           alert('Usuário banido com sucesso!');
                                           setShowBanModal(false);

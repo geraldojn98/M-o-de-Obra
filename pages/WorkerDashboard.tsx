@@ -5,6 +5,7 @@ import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, S
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 import { LevelBadge } from '../components/LevelBadge';
+import * as NotificationService from '../services/notifications';
 
 interface WorkerDashboardProps {
   user: User;
@@ -175,9 +176,23 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   const handleRefuseDirectProposal = async (jobId: string) => {
     if (!confirm('Recusar esta proposta? O cliente será informado e o serviço voltará a ficar disponível para outros profissionais.')) return;
     setLoadingAction(true);
+    const job = availableJobs.find(j => j.id === jobId);
     const { error } = await supabase.from('jobs').update({ worker_id: null }).eq('id', jobId);
-    if (error) showToast(error.message, 'error');
-    else {
+    if (error) {
+      showToast(error.message, 'error');
+    } else {
+      // Notificar o cliente sobre a recusa
+      if (job?.clientId) {
+        const { data: clientData } = await supabase.from('profiles').select('full_name').eq('id', job.clientId).single();
+        if (clientData) {
+          await NotificationService.createNotification({
+            userId: job.clientId,
+            title: 'Proposta Recusada',
+            message: `${user.name} recusou sua proposta para "${job.title}". O serviço voltou a ficar disponível.`,
+            type: 'job_update',
+          });
+        }
+      }
       showToast('Proposta recusada.', 'success');
       await fetchData();
     }
@@ -219,9 +234,22 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
 
       const { error } = await supabase.from('jobs').update({ worker_id: user.id, status: 'in_progress', accepted_at: new Date().toISOString() }).eq('id', jobId);
       
-      if (error) { showToast(error.message, 'error'); setLoadingAction(false); }
-      else {
-          showToast('Serviço aceito!', 'success'); setActiveTab('my_jobs'); await fetchData(); setLoadingAction(false);
+      if (error) { 
+        showToast(error.message, 'error'); 
+        setLoadingAction(false); 
+      } else {
+        // Buscar dados do cliente para notificação
+        const { data: jobData } = await supabase.from('jobs').select('client_id, title').eq('id', jobId).single();
+        if (jobData?.client_id) {
+          const { data: clientData } = await supabase.from('profiles').select('full_name').eq('id', jobData.client_id).single();
+          if (clientData) {
+            await NotificationService.notifyClientJobAccepted(jobData.client_id, user.name, jobData.title || jobToAccept.title, jobId);
+          }
+        }
+        showToast('Serviço aceito!', 'success'); 
+        setActiveTab('my_jobs'); 
+        await fetchData(); 
+        setLoadingAction(false);
       }
   };
 
@@ -314,9 +342,20 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
 
       const { error } = await supabase.from('jobs').update(updates).eq('id', selectedJobId);
 
-      if (error) showToast(error.message, 'error');
-      else {
-          showToast('Enviado para verificação!', 'success'); closeModal(); fetchData(); calculateTodayPoints();
+      if (error) {
+        showToast(error.message, 'error');
+      } else {
+        // Notificar o cliente que o serviço foi finalizado
+        if (job.clientId) {
+          const { data: clientData } = await supabase.from('profiles').select('full_name').eq('id', job.clientId).single();
+          if (clientData) {
+            await NotificationService.notifyClientJobFinished(job.clientId, user.name, job.title, selectedJobId);
+          }
+        }
+        showToast('Enviado para verificação!', 'success'); 
+        closeModal(); 
+        fetchData(); 
+        calculateTodayPoints();
       }
       setLoadingAction(false);
   };
@@ -328,7 +367,26 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   const openCancelModal = (e: React.MouseEvent, jobId: string) => { e.stopPropagation(); setSelectedJobId(jobId); setModalType('cancel'); setCancelReason(''); };
   const openFinishModal = (e: React.MouseEvent, jobId: string) => { e.stopPropagation(); setSelectedJobId(jobId); setModalType('finish'); setCapturedImage(null); stopCamera(); };
   const closeModal = () => { setModalType(null); setSelectedJobId(null); stopCamera(); setShowCameraPermission(false); };
-  const confirmCancelJob = async () => { if (!selectedJobId || !cancelReason.trim()) return showToast("Informe o motivo.", 'error'); setLoadingAction(true); const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', selectedJobId); if (error) showToast(error.message, 'error'); else { closeModal(); fetchData(); } setLoadingAction(false); };
+  const confirmCancelJob = async () => {
+    if (!selectedJobId || !cancelReason.trim()) return showToast("Informe o motivo.", 'error');
+    setLoadingAction(true);
+    const job = myJobs.find(j => j.id === selectedJobId);
+    const { error } = await supabase.from('jobs').update({ status: 'cancelled', cancellation_reason: cancelReason, cancelled_by: user.id }).eq('id', selectedJobId);
+    if (error) {
+      showToast(error.message, 'error');
+    } else {
+      // Notificar o cliente sobre o cancelamento
+      if (job?.clientId) {
+        const { data: clientData } = await supabase.from('profiles').select('full_name').eq('id', job.clientId).single();
+        if (clientData) {
+          await NotificationService.notifyClientJobCancelled(job.clientId, user.name, job.title, cancelReason);
+        }
+      }
+      closeModal();
+      fetchData();
+    }
+    setLoadingAction(false);
+  };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
 
   const openAppealModal = async () => {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { Partner, Coupon } from '../types';
+import * as NotificationService from '../services/notifications';
 import { Button } from '../components/Button';
 import { Store, MapPin, Ticket, QrCode, X, Camera } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -188,22 +189,30 @@ export const PartnersPage: React.FC = () => {
             if(res.success) {
                 setScanStatus('success');
                 
-                // NOTIFY THE PARTNER
                 const coupon = coupons.find(c => c.id === couponId);
                 if (coupon) {
+                    // Notificar o parceiro
                     const { data: partnerData } = await supabase.from('partners').select('email').eq('id', coupon.partnerId).single();
                     if(partnerData && partnerData.email) {
                          const { data: profileData } = await supabase.from('profiles').select('id').eq('email', partnerData.email).single();
                          if(profileData) {
-                             await supabase.from('notifications').insert({
-                                 user_id: profileData.id,
+                             await NotificationService.createNotification({
+                                 userId: profileData.id,
                                  title: 'Cupom Resgatado!',
                                  message: `${userName} acabou de resgatar o cupom: ${coupon.title}`,
                                  type: 'promo',
-                                 action_link: JSON.stringify({screen: 'history'})
+                                 actionLink: { screen: 'history' }
                              });
                          }
                     }
+                    
+                    // Notificar o usuário que resgatou
+                    await NotificationService.createNotification({
+                        userId: userId,
+                        title: 'Cupom Resgatado!',
+                        message: `Você resgatou o cupom "${coupon.title}" por ${coupon.cost} pontos.`,
+                        type: 'promo',
+                    });
                 }
 
                 fetchData(); 

@@ -99,7 +99,7 @@ export interface Notification {
   title: string;
   message: string;
   read: boolean;
-  type: 'info' | 'job_update' | 'chat' | 'promo';
+  type: 'info' | 'job_update' | 'chat' | 'promo' | 'admin_action' | 'ban';
   actionLink?: string; // JSON string: { screen: 'chat', id: '123' }
   createdAt: string;
 }
