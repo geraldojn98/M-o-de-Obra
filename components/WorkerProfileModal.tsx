@@ -4,6 +4,7 @@ import { StarRatingDisplay } from './StarRatingDisplay';
 import { Button } from './Button';
 import { LevelBadge } from './LevelBadge';
 import { supabase } from '../services/supabase';
+import { DEFAULT_AVATAR } from '../constants/defaultAvatar';
 
 export type WorkerLevel = 'bronze' | 'silver' | 'gold' | 'diamond';
 
@@ -90,7 +91,7 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
             className={`w-24 h-24 rounded-full p-1.5 shadow-lg ${style.border} border-4 bg-white flex items-center justify-center relative`}
           >
             <img
-              src={worker.avatar_url || 'https://via.placeholder.com/96?text=?'}
+              src={worker.avatar_url || DEFAULT_AVATAR}
               alt={worker.full_name}
               className="w-full h-full rounded-full object-cover bg-slate-200"
             />

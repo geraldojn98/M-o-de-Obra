@@ -10,6 +10,7 @@ import { WorkerProfileModal } from '../components/WorkerProfileModal';
 import { LevelBadge } from '../components/LevelBadge';
 import { EmptyState } from '../components/EmptyState';
 import * as NotificationService from '../services/notifications';
+import { DEFAULT_AVATAR } from '../constants/defaultAvatar';
 
 /** Distância em km entre dois pontos (Fórmula de Haversine). */
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -628,7 +629,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
                           return (
                             <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
                               <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full relative">
-                                <img src={w.avatar_url} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
+                                <img src={w.avatar_url || DEFAULT_AVATAR} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
                                 <div className="absolute -bottom-0.5 -right-0.5">
                                   <LevelBadge level={level} size="sm" />
                                 </div>

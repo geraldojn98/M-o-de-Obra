@@ -19,8 +19,7 @@ import { supabase } from './services/supabase';
 import { NotificationBell } from './components/NotificationBell';
 import { Footer } from './components/Footer';
 import { IMAGES } from './logos';
-
-const DEFAULT_AVATAR = "https://i.ibb.co/3W009gR/user-placeholder.png";
+import { DEFAULT_AVATAR } from './constants/defaultAvatar';
 
 const roleToPath = (role: UserRole) =>
   role === 'admin' ? '/admin' : role === 'partner' ? '/partner' : role === 'worker' ? '/worker' : '/client';

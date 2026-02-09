@@ -11,6 +11,7 @@ import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 import { LevelBadge } from '../components/LevelBadge';
 import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import * as NotificationService from '../services/notifications';
+import { DEFAULT_AVATAR } from '../constants/defaultAvatar';
 
 type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
 
@@ -926,7 +927,7 @@ export const AdminDashboard: React.FC = () => {
                           >
                               <div className="flex items-center gap-3 min-w-0 flex-1">
                                   <div className="relative shrink-0">
-                                      <img src={u.avatar_url} className="w-12 h-12 rounded-2xl bg-slate-100 shrink-0 object-cover"/>
+                                      <img src={u.avatar_url || DEFAULT_AVATAR} className="w-12 h-12 rounded-2xl bg-slate-100 shrink-0 object-cover"/>
                                       {u.allowed_roles?.includes('worker') && (
                                           <div className="absolute -bottom-1 -right-1">
                                               <LevelBadge level={u.level || 'bronze'} size="sm" />
@@ -1226,7 +1227,7 @@ export const AdminDashboard: React.FC = () => {
                   <div className="flex justify-between items-start mb-6">
                       <div className="flex items-center gap-4">
                           <div className="relative shrink-0">
-                              <img src={userDetails.avatar_url} className="w-16 h-16 rounded-2xl bg-slate-100 object-cover"/>
+                              <img src={userDetails.avatar_url || DEFAULT_AVATAR} className="w-16 h-16 rounded-2xl bg-slate-100 object-cover"/>
                               {userDetails.allowed_roles?.includes('worker') && (
                                   <div className="absolute -bottom-1 -right-1">
                                       <LevelBadge level={userDetails.level || 'bronze'} size="md" />
