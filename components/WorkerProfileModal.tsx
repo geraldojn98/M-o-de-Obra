@@ -2,6 +2,7 @@ import React from 'react';
 import * as Icons from 'lucide-react';
 import { StarRatingDisplay } from './StarRatingDisplay';
 import { Button } from './Button';
+import { LevelBadge } from './LevelBadge';
 
 export type WorkerLevel = 'bronze' | 'silver' | 'gold' | 'diamond';
 
@@ -67,13 +68,16 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
           </button>
 
           <div
-            className={`w-24 h-24 rounded-full p-1.5 shadow-lg ${style.border} border-4 bg-white flex items-center justify-center`}
+            className={`w-24 h-24 rounded-full p-1.5 shadow-lg ${style.border} border-4 bg-white flex items-center justify-center relative`}
           >
             <img
               src={worker.avatar_url || 'https://via.placeholder.com/96?text=?'}
               alt={worker.full_name}
               className="w-full h-full rounded-full object-cover bg-slate-200"
             />
+            <div className="absolute -bottom-1 -right-1">
+              <LevelBadge level={level} size="md" />
+            </div>
           </div>
 
           <h2 className="font-black text-xl text-slate-800 mt-3 truncate max-w-full text-center">

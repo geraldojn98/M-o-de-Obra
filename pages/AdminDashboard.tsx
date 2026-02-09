@@ -4,9 +4,10 @@ import { Button } from '../components/Button';
 import { 
     Users, Briefcase, Store, Search, Trash2, Edit, 
     X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign, Lightbulb,
-    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText, Clock
+    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText, Clock, Filter
 } from 'lucide-react';
 import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
+import { LevelBadge } from '../components/LevelBadge';
 
 type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
 
@@ -163,6 +164,8 @@ export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterRole, setFilterRole] = useState<string>('all');
+  const [filterLevel, setFilterLevel] = useState<string>('all');
 
   // Data
   const [users, setUsers] = useState<any[]>([]);
@@ -332,10 +335,26 @@ export const AdminDashboard: React.FC = () => {
       }
   };
 
-  const filteredUsers = users.filter(u => 
+  const filteredUsers = users.filter(u => {
+    // Busca por nome/email
+    const matchesSearch = !searchTerm || 
       u.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      u.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+      u.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Filtro de tipo
+    const matchesRole = filterRole === 'all' || 
+      (filterRole === 'client' && u.allowed_roles?.includes('client') && !u.allowed_roles?.includes('worker') && !u.allowed_roles?.includes('admin') && !u.allowed_roles?.includes('partner')) ||
+      (filterRole === 'worker' && u.allowed_roles?.includes('worker')) ||
+      (filterRole === 'partner' && u.allowed_roles?.includes('partner')) ||
+      (filterRole === 'admin' && u.allowed_roles?.includes('admin'));
+    
+    // Filtro de nível (só aplica para workers)
+    const matchesLevel = filterLevel === 'all' || 
+      !u.allowed_roles?.includes('worker') || // Se não é worker, passa no filtro de nível
+      (u.level || 'bronze') === filterLevel;
+    
+    return matchesSearch && matchesRole && matchesLevel;
+  });
 
   return (
     <div className="space-y-6 pb-24 md:pb-6 w-full max-w-full overflow-hidden">
@@ -395,6 +414,7 @@ export const AdminDashboard: React.FC = () => {
 
       {activeTab === 'users' && (
           <div className="space-y-4 animate-fade-in">
+              {/* Barra de Busca */}
               <div className="relative">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20}/>
                   <input 
@@ -404,44 +424,98 @@ export const AdminDashboard: React.FC = () => {
                     onChange={e=>setSearchTerm(e.target.value)}
                   />
               </div>
+
+              {/* Filtros Avançados */}
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                      <Filter size={16} className="text-slate-400" />
+                      <span className="text-xs font-bold text-slate-500 uppercase">Filtros</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Filtro de Tipo */}
+                      <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tipo</label>
+                          <div className="relative">
+                              <select 
+                                  className="w-full p-2.5 bg-slate-50 border-0 rounded-xl focus:ring-2 focus:ring-brand-orange outline-none appearance-none text-sm font-medium text-slate-800" 
+                                  value={filterRole}
+                                  onChange={e => setFilterRole(e.target.value)}
+                              >
+                                  <option value="all">Todos</option>
+                                  <option value="client">Clientes</option>
+                                  <option value="worker">Profissionais</option>
+                                  <option value="partner">Parceiros</option>
+                                  <option value="admin">Admins</option>
+                              </select>
+                              <ChevronRight className="absolute right-3 top-3 text-slate-400 rotate-90 pointer-events-none" size={14}/>
+                          </div>
+                      </div>
+
+                      {/* Filtro de Nível */}
+                      <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nível</label>
+                          <div className="relative">
+                              <select 
+                                  className="w-full p-2.5 bg-slate-50 border-0 rounded-xl focus:ring-2 focus:ring-brand-orange outline-none appearance-none text-sm font-medium text-slate-800" 
+                                  value={filterLevel}
+                                  onChange={e => setFilterLevel(e.target.value)}
+                              >
+                                  <option value="all">Todos</option>
+                                  <option value="bronze">Bronze</option>
+                                  <option value="silver">Prata</option>
+                                  <option value="gold">Ouro</option>
+                                  <option value="diamond">Diamante</option>
+                              </select>
+                              <ChevronRight className="absolute right-3 top-3 text-slate-400 rotate-90 pointer-events-none" size={14}/>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* Lista de Usuários */}
               <div className="grid grid-cols-1 gap-3">
-                  {filteredUsers.map(u => (
-                      <div key={u.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-                          <div className="flex items-center gap-3 min-w-0">
-                              <img src={u.avatar_url} className="w-12 h-12 rounded-2xl bg-slate-100 shrink-0"/>
-                              <div className="min-w-0">
-                                  <p className="font-black text-slate-800 truncate text-sm">{u.full_name}</p>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
-                                          u.allowed_roles?.includes('admin') ? 'bg-red-100 text-red-600' :
-                                          u.allowed_roles?.includes('partner') ? 'bg-purple-100 text-purple-600' :
-                                          u.allowed_roles?.includes('worker') ? 'bg-blue-100 text-blue-600' :
-                                          'bg-orange-100 text-brand-orange'
-                                      }`}>
-                                          {u.allowed_roles?.[0]}
-                                      </span>
+                  {filteredUsers.length === 0 ? (
+                      <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 text-center text-slate-400">
+                          <Users size={40} className="mx-auto mb-2 text-slate-300" />
+                          <p className="font-bold">Nenhum usuário encontrado</p>
+                          <p className="text-xs mt-1">Tente ajustar os filtros</p>
+                      </div>
+                  ) : (
+                      filteredUsers.map(u => (
+                          <div key={u.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                              <div className="flex items-center gap-3 min-w-0">
+                                  <div className="relative shrink-0">
+                                      <img src={u.avatar_url} className="w-12 h-12 rounded-2xl bg-slate-100 shrink-0 object-cover"/>
                                       {u.allowed_roles?.includes('worker') && (
-                                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                              u.level === 'diamond' ? 'bg-cyan-400/30 text-cyan-800' :
-                                              u.level === 'gold' ? 'bg-amber-400/30 text-amber-800' :
-                                              u.level === 'silver' ? 'bg-slate-400/30 text-slate-700' :
-                                              'bg-amber-800/30 text-amber-900'
-                                          }`} title={u.level_admin_override ? 'Nível definido pelo admin' : ''}>
-                                              {u.level === 'diamond' ? '◆Diamante' : u.level === 'gold' ? '★Ouro' : u.level === 'silver' ? '●Prata' : '◆Bronze'}
-                                          </span>
+                                          <div className="absolute -bottom-1 -right-1">
+                                              <LevelBadge level={u.level || 'bronze'} size="sm" />
+                                          </div>
                                       )}
-                                      <span className="text-[10px] text-slate-400 font-bold">{u.points} pts</span>
+                                  </div>
+                                  <div className="min-w-0">
+                                      <p className="font-black text-slate-800 truncate text-sm">{u.full_name}</p>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                                              u.allowed_roles?.includes('admin') ? 'bg-red-100 text-red-600' :
+                                              u.allowed_roles?.includes('partner') ? 'bg-purple-100 text-purple-600' :
+                                              u.allowed_roles?.includes('worker') ? 'bg-blue-100 text-blue-600' :
+                                              'bg-orange-100 text-brand-orange'
+                                          }`}>
+                                              {u.allowed_roles?.[0]}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400 font-bold">{u.points} pts</span>
+                                      </div>
                                   </div>
                               </div>
+                              <button 
+                                onClick={() => setEditingUser(u)}
+                                className="p-3 bg-slate-50 text-slate-400 hover:text-brand-orange hover:bg-orange-50 rounded-xl transition-colors"
+                              >
+                                  <Edit size={20}/>
+                              </button>
                           </div>
-                          <button 
-                            onClick={() => setEditingUser(u)}
-                            className="p-3 bg-slate-50 text-slate-400 hover:text-brand-orange hover:bg-orange-50 rounded-xl transition-colors"
-                          >
-                              <Edit size={20}/>
-                          </button>
-                      </div>
-                  ))}
+                      ))
+                  )}
               </div>
           </div>
       )}

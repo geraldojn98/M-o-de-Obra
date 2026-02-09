@@ -6,6 +6,7 @@ import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import { WorkerProfileModal } from '../components/WorkerProfileModal';
+import { LevelBadge } from '../components/LevelBadge';
 
 interface ClientDashboardProps {
   user: User;
@@ -479,12 +480,13 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                     ) : (
                         workers.map(w => {
                           const level = w.level || 'bronze';
-                          const levelBorder = level === 'diamond' ? 'border-2 border-cyan-400' : level === 'gold' ? 'border-2 border-amber-400' : level === 'silver' ? 'border-2 border-slate-400' : 'border-2 border-amber-800/60';
-                          const levelBadge = level === 'diamond' ? 'bg-cyan-400 text-cyan-900' : level === 'gold' ? 'bg-amber-400 text-amber-900' : level === 'silver' ? 'bg-slate-500 text-white' : 'bg-amber-800 text-amber-100';
                           return (
                             <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
-                              <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full">
-                                <img src={w.avatar_url} alt="" className={`w-12 h-12 rounded-full bg-slate-200 object-cover ${levelBorder}`} />
+                              <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full relative">
+                                <img src={w.avatar_url} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
+                                <div className="absolute -bottom-0.5 -right-0.5">
+                                  <LevelBadge level={level} size="sm" />
+                                </div>
                               </button>
                               <button type="button" onClick={() => openProfileModal(w)} className="flex-1 min-w-0 text-left focus:outline-none focus:ring-0">
                                 <h4 className="font-bold truncate hover:text-brand-orange transition-colors">{w.full_name}</h4>
@@ -492,9 +494,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                                 <div className="flex items-center gap-2 mt-1">
                                   <StarRatingDisplay rating={w.rating ?? 0} size={14} />
                                   <span className="text-xs font-bold text-slate-600">{(w.rating ?? 0).toFixed(1)}</span>
-                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${levelBadge}`} title={`Nível: ${level === 'diamond' ? 'Diamante' : level === 'gold' ? 'Ouro' : level === 'silver' ? 'Prata' : 'Bronze'}`}>
-                                    {level === 'diamond' ? 'Diam' : level === 'gold' ? 'Ouro' : level === 'silver' ? 'Prat' : 'Bron'}
-                                  </span>
                                 </div>
                               </button>
                               <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>

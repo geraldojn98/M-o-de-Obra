@@ -2,15 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store } from 'lucide-react';
-
-const LEVEL_STYLES: Record<string, { border: string; badge: string; label: string }> = {
-  bronze: { border: 'border-amber-800/80 shadow-amber-900/30', badge: 'bg-amber-800 text-amber-100', label: 'Bronze' },
-  silver: { border: 'border-slate-400 shadow-slate-500/30', badge: 'bg-slate-500 text-white', label: 'Prata' },
-  gold: { border: 'border-amber-400 shadow-amber-500/40', badge: 'bg-amber-400 text-amber-900', label: 'Ouro' },
-  diamond: { border: 'border-cyan-400 shadow-cyan-500/40', badge: 'bg-cyan-400 text-cyan-900', label: 'Diamante' },
-};
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
+import { LevelBadge } from '../components/LevelBadge';
 
 interface WorkerDashboardProps {
   user: User;
@@ -371,15 +365,15 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
        
        {/* PROFILE HEADER COM NÍVEL */}
        <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-            <div className={`w-14 h-14 rounded-full p-1.5 shadow-md flex items-center justify-center ${LEVEL_STYLES[user.level || 'bronze']?.border || LEVEL_STYLES.bronze.border} border-2 bg-white shrink-0`}>
+            <div className="w-14 h-14 rounded-full shadow-md flex items-center justify-center bg-white shrink-0 relative">
                 <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover bg-slate-200" />
+                <div className="absolute -top-1 -right-1">
+                  <LevelBadge level={user.level || 'bronze'} size="sm" />
+                </div>
             </div>
             <div className="flex-1 min-w-0">
                 <p className="font-black text-slate-800 truncate">{user.name}</p>
                 <p className="text-xs text-slate-500 truncate">{user.specialty || 'Profissional'}</p>
-                <span className={`inline-block mt-1 px-2 py-0.5 rounded-lg text-xs font-bold ${LEVEL_STYLES[user.level || 'bronze']?.badge || LEVEL_STYLES.bronze.badge}`}>
-                    {LEVEL_STYLES[user.level || 'bronze']?.label || 'Bronze'}
-                </span>
             </div>
        </div>
 
