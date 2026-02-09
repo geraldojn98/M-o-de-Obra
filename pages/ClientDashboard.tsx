@@ -91,8 +91,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const [isAllCategories, setIsAllCategories] = useState(true);
 
   const [workers, setWorkers] = useState<any[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [searchRadiusKm, setSearchRadiusKm] = useState<number | null>(10); // 5, 10, 50, null = cidade toda
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null); // null = Todas
+  const [searchRadiusKm, setSearchRadiusKm] = useState<number | null>(null); // 5, 10, 25, 50, 100, null = acima de 100km
   const [showLoginRequiredModal, setShowLoginRequiredModal] = useState(false);
 
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
@@ -123,6 +123,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   useEffect(() => {
     fetchData();
   }, [user.id, activeTab]);
+
+  useEffect(() => {
+    if (viewMode === 'find_pro') fetchAllWorkers();
+  }, [viewMode]);
 
   useEffect(() => {
       const handleOpenChat = (e: CustomEvent) => {
@@ -352,18 +356,19 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const openRatingModal = (job: any) => { setSelectedItem(job); setModalType('rate'); setRatingScore(5); setRatingDuration(''); setRatingComment(''); setCapturedImage(null); stopCamera(); };
   const closeModal = () => { setModalType(null); setSelectedItem(null); stopCamera(); setShowCameraPermission(false); setRatingComment(''); };
   const LEVEL_ORDER: Record<string, number> = { diamond: 4, gold: 3, silver: 2, bronze: 1 };
-  const fetchWorkersByCategory = async (category: string) => {
-    setLoading(true); setSelectedCategory(category);
-    let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']).ilike('specialty', `%${category}%`);
+  const fetchAllWorkers = async () => {
+    setLoading(true);
+    let query = supabase.from('profiles').select('*').contains('allowed_roles', ['worker']);
     if (user.city) query = query.ilike('city', user.city);
     const { data } = await query;
-    const list = (data || []).sort((a, b) => {
+    const list = (data || []).sort((a: any, b: any) => {
       const levelA = LEVEL_ORDER[a.level || 'bronze'] ?? 0;
       const levelB = LEVEL_ORDER[b.level || 'bronze'] ?? 0;
       if (levelB !== levelA) return levelB - levelA;
       return (b.rating ?? 0) - (a.rating ?? 0);
     });
-    setWorkers(list); setLoading(false);
+    setWorkers(list);
+    setLoading(false);
   };
   const openProfileModal = async (worker: any) => {
     setProfileModalWorker(worker);
@@ -418,13 +423,24 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   const activeJobs = jobs.filter(j => ['pending', 'in_progress', 'waiting_verification'].includes(j.status));
 
   const filteredWorkers = React.useMemo(() => {
-    if (!searchRadiusKm || user.latitude == null || user.longitude == null) return workers;
-    return workers.filter((w: any) => {
-      const wLat = w.latitude; const wLon = w.longitude;
-      if (wLat == null || wLon == null) return true;
-      return haversineKm(user.latitude!, user.longitude!, wLat, wLon) <= searchRadiusKm;
-    });
-  }, [workers, searchRadiusKm, user.latitude, user.longitude]);
+    let list = workers;
+    if (selectedCategoryFilter) {
+      const cat = selectedCategoryFilter.toLowerCase();
+      list = list.filter((w: any) => {
+        const spec = (w.specialty || '').toLowerCase();
+        return spec.includes(cat);
+      });
+    }
+    if (searchRadiusKm != null && user.latitude != null && user.longitude != null) {
+      list = list.filter((w: any) => {
+        const wLat = w.latitude;
+        const wLon = w.longitude;
+        if (wLat == null || wLon == null) return true;
+        return haversineKm(user.latitude!, user.longitude!, wLat, wLon) <= searchRadiusKm;
+      });
+    }
+    return list;
+  }, [workers, selectedCategoryFilter, searchRadiusKm, user.latitude, user.longitude]);
 
   return (
     <div className="space-y-6 pb-20 sm:pb-0 relative">
@@ -544,64 +560,90 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
              {viewMode === 'find_pro' && (
                 <div className="animate-fade-in space-y-4">
                      <div className="flex items-center gap-2 mb-4">
-                        <button onClick={() => { setViewMode('selection'); setSelectedCategory(null); }} className="text-slate-500 hover:bg-slate-100 p-2 rounded-full"><Icons.ArrowLeft size={20}/></button>
+                        <button onClick={() => setViewMode('selection')} className="text-slate-500 hover:bg-slate-100 p-2 rounded-full"><Icons.ArrowLeft size={20}/></button>
                         <h3 className="font-bold text-lg">Encontrar Especialista</h3>
                     </div>
-                     {!selectedCategory ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-                            {categories.filter(c => c.name !== 'Outros').map(cat => (
-                                <button key={cat.id} onClick={() => fetchWorkersByCategory(cat.name)} className="bg-white p-4 rounded-xl shadow-sm border hover:border-brand-orange flex flex-col items-center gap-2"><span className="font-medium text-xs">{cat.name}</span></button>
-                            ))}
+
+                    {/* Filtros: Categoria e Raio */}
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-xs font-bold text-slate-500 uppercase block mb-2">Categoria</span>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCategoryFilter(null)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${selectedCategoryFilter === null ? 'bg-brand-orange text-white border-brand-orange' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                          >
+                            Todas
+                          </button>
+                          {categories.filter(c => c.name !== 'Outros').map(cat => (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => setSelectedCategoryFilter(cat.name)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${selectedCategoryFilter === cat.name ? 'bg-brand-orange text-white border-brand-orange' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                            >
+                              {cat.name}
+                            </button>
+                          ))}
                         </div>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-500 uppercase block mb-2">Raio de busca</span>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 5, label: '5 km' },
+                            { value: 10, label: '10 km' },
+                            { value: 25, label: '25 km' },
+                            { value: 50, label: '50 km' },
+                            { value: 100, label: '100 km' },
+                            { value: null, label: 'Acima de 100 km' },
+                          ].map(({ value, label }) => (
+                            <button
+                              key={value ?? 'above'}
+                              type="button"
+                              onClick={() => setSearchRadiusKm(value)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${searchRadiusKm === value ? 'bg-brand-orange text-white border-brand-orange' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {loading ? (
+                      <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
+                    ) : filteredWorkers.length === 0 ? (
+                      <EmptyState icon={Icons.UserX} title="Nenhum profissional encontrado" description="Tente outro raio de busca ou outra categoria." />
                     ) : (
-                        <>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-slate-500 uppercase">Raio de busca:</span>
-                            {[
-                              { value: 5, label: '5 km' },
-                              { value: 10, label: '10 km' },
-                              { value: 50, label: '50 km' },
-                              { value: null, label: 'Cidade toda' },
-                            ].map(({ value, label }) => (
-                              <button
-                                key={label}
-                                type="button"
-                                onClick={() => setSearchRadiusKm(value)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${searchRadiusKm === value ? 'bg-brand-orange text-white border-brand-orange' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                          {loading ? (
-                            <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
-                          ) : filteredWorkers.length === 0 ? (
-                            <EmptyState icon={Icons.UserX} title="Nenhum profissional encontrado" description="Tente outro raio de busca ou outra categoria." />
-                          ) : (
-                            filteredWorkers.map((w: any) => {
-                              const level = w.level || 'bronze';
-                              return (
-                                <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
-                                  <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full relative">
-                                    <img src={w.avatar_url} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
-                                    <div className="absolute -bottom-0.5 -right-0.5">
-                                      <LevelBadge level={level} size="sm" />
-                                    </div>
-                                  </button>
-                                  <button type="button" onClick={() => openProfileModal(w)} className="flex-1 min-w-0 text-left focus:outline-none focus:ring-0">
-                                    <h4 className="font-bold truncate hover:text-brand-orange transition-colors">{w.full_name}</h4>
-                                    <p className="text-xs text-slate-500 truncate">{w.specialty}</p>
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <StarRatingDisplay rating={w.rating ?? 0} size={14} />
-                                      <span className="text-xs font-bold text-slate-600">{(w.rating ?? 0).toFixed(1)}</span>
-                                    </div>
-                                  </button>
-                                  <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>
+                      <div className="space-y-3">
+                        {filteredWorkers.map((w: any) => {
+                          const level = w.level || 'bronze';
+                          const categoryLabel = (w.specialty || 'Profissional').split(',')[0].trim();
+                          return (
+                            <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+                              <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full relative">
+                                <img src={w.avatar_url} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
+                                <div className="absolute -bottom-0.5 -right-0.5">
+                                  <LevelBadge level={level} size="sm" />
                                 </div>
-                              );
-                            })
-                          )}
-                        </>
+                              </button>
+                              <button type="button" onClick={() => openProfileModal(w)} className="flex-1 min-w-0 text-left focus:outline-none focus:ring-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{categoryLabel}</span>
+                                  <h4 className="font-bold truncate hover:text-brand-orange transition-colors">{w.full_name}</h4>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <StarRatingDisplay rating={w.rating ?? 0} size={14} />
+                                  <span className="text-xs font-bold text-slate-600">{(w.rating ?? 0).toFixed(1)}</span>
+                                </div>
+                              </button>
+                              <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                 </div>
             )}
