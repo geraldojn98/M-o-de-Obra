@@ -37,7 +37,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
                 read: newNotif.read,
                 type: newNotif.type,
                 actionLink: newNotif.action_link,
-                createdAt: newNotif.created_at
+                createdAt: newNotif.created_at,
+                readAt: newNotif.read_at
             }, 
             ...prev
         ]);
@@ -64,15 +65,29 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
   }, [userId]);
 
   const fetchNotifications = async () => {
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const threeDaysAgoISO = threeDaysAgo.toISOString();
+    
+    // Buscar todas as notificações do usuário
     const { data } = await supabase
       .from('notifications')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(50); // Buscar mais para filtrar depois
 
     if (data) {
-        const parsed = data.map((n:any) => ({
+        // Filtrar: mostrar apenas não lidas OU lidas há menos de 3 dias
+        const filtered = data.filter((n: any) => {
+          if (!n.read) return true; // Sempre mostrar não lidas
+          if (n.read && n.read_at) {
+            return new Date(n.read_at) >= threeDaysAgo;
+          }
+          return false; // Se está lida mas não tem read_at, não mostrar (caso antigo)
+        });
+        
+        const parsed = filtered.slice(0, 20).map((n:any) => ({
             id: n.id,
             userId: n.user_id,
             title: n.title,
@@ -80,7 +95,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
             read: n.read,
             type: n.type,
             actionLink: n.action_link,
-            createdAt: n.created_at
+            createdAt: n.created_at,
+            readAt: n.read_at
         }));
         setNotifications(parsed);
         setUnreadCount(parsed.filter(n => !n.read).length);
@@ -90,14 +106,27 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
   const handleOpen = async () => {
     setIsOpen(!isOpen);
     if (!isOpen && unreadCount > 0) {
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        const now = new Date().toISOString();
+        setNotifications(prev => prev.map(n => ({ ...n, read: true, readAt: now })));
         setUnreadCount(0);
-        await supabase.from('notifications').update({ read: true }).eq('user_id', userId).eq('read', false);
+        // O trigger no banco vai atualizar read_at automaticamente, mas garantimos aqui também
+        await supabase.from('notifications').update({ read: true, read_at: now }).eq('user_id', userId).eq('read', false);
     }
   };
 
-  const handleClickNotif = (n: AppNotification) => {
+  const handleClickNotif = async (n: AppNotification) => {
       setIsOpen(false);
+      
+      // Marcar como lida se ainda não estiver lida
+      if (!n.read) {
+          const now = new Date().toISOString();
+          setNotifications(prev => prev.map(notif => 
+              notif.id === n.id ? { ...notif, read: true, readAt: now } : notif
+          ));
+          setUnreadCount(prev => Math.max(0, prev - 1));
+          await supabase.from('notifications').update({ read: true, read_at: now }).eq('id', n.id);
+      }
+      
       // Logic for specific action links (e.g., open chat)
       if (n.actionLink) {
           try {

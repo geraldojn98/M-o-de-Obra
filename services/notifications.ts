@@ -222,3 +222,19 @@ export const notifyAppealRejected = async (userId: string): Promise<void> => {
     type: 'admin_action',
   });
 };
+
+/**
+ * Limpa notificações antigas (visualizadas há mais de 3 dias)
+ * Esta função deve ser chamada periodicamente (ex: diariamente via cron job)
+ * ou pode ser executada manualmente quando necessário
+ */
+export const cleanupOldNotifications = async (): Promise<void> => {
+  try {
+    const { error } = await supabase.rpc('cleanup_old_notifications');
+    if (error) {
+      console.error('Erro ao limpar notificações antigas:', error);
+    }
+  } catch (error) {
+    console.error('Erro ao executar limpeza de notificações:', error);
+  }
+};

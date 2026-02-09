@@ -102,6 +102,7 @@ export interface Notification {
   type: 'info' | 'job_update' | 'chat' | 'promo' | 'admin_action' | 'ban';
   actionLink?: string; // JSON string: { screen: 'chat', id: '123' }
   createdAt: string;
+  readAt?: string; // Data em que a notificação foi visualizada
 }
 
 export interface Partner {
