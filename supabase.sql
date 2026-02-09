@@ -163,3 +163,10 @@ SELECT 'Outros', 'HelpCircle'
 WHERE NOT EXISTS (
     SELECT 1 FROM service_categories WHERE name = 'Outros'
 );
+
+-- 10. CATEGORIA PISCINEIRO
+INSERT INTO service_categories (name, icon)
+SELECT 'Piscineiro', 'Droplets'
+WHERE NOT EXISTS (
+    SELECT 1 FROM service_categories WHERE name = 'Piscineiro'
+);
