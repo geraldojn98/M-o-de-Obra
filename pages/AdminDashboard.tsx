@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 import { LevelBadge } from '../components/LevelBadge';
+import { StarRatingDisplay } from '../components/StarRatingDisplay';
 
 type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
 
@@ -173,6 +174,9 @@ export const AdminDashboard: React.FC = () => {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [suggestions, setSuggestions] = useState<CategorySuggestion[]>([]);
   const [editingUser, setEditingUser] = useState<any>(null);
+  const [viewingUser, setViewingUser] = useState<any>(null);
+  const [userDetails, setUserDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Notifications State
   const [notifTitle, setNotifTitle] = useState('');
@@ -304,6 +308,95 @@ export const AdminDashboard: React.FC = () => {
       } catch (e: any) {
           alert("Erro: " + e.message);
       }
+  };
+
+  const fetchUserDetails = async (userId: string) => {
+    setLoadingDetails(true);
+    try {
+      const user = users.find(u => u.id === userId);
+      if (!user) return;
+
+      const details: any = {
+        ...user,
+        jobsAsWorker: 0,
+        jobsAsClient: 0,
+        workerRating: null,
+        clientRatingAverage: null,
+        couponsCreated: 0,
+        couponsRedeemed: 0,
+      };
+
+      // Buscar serviços como worker
+      const { data: workerJobs } = await supabase
+        .from('jobs')
+        .select('id, rating, status')
+        .eq('worker_id', userId);
+      
+      if (workerJobs) {
+        details.jobsAsWorker = workerJobs.length;
+        const completedWithRating = workerJobs.filter(j => j.status === 'completed' && j.rating != null);
+        if (completedWithRating.length > 0) {
+          const avg = completedWithRating.reduce((sum, j) => sum + j.rating, 0) / completedWithRating.length;
+          details.workerRating = Math.round(avg * 10) / 10;
+        }
+      }
+
+      // Buscar serviços como client
+      const { data: allClientJobs } = await supabase
+        .from('jobs')
+        .select('id, rating, status')
+        .eq('client_id', userId);
+      
+      if (allClientJobs) {
+        details.jobsAsClient = allClientJobs.length;
+        // Média de avaliações dadas pelo cliente (apenas serviços completados com rating)
+        const ratedJobs = allClientJobs.filter(j => j.status === 'completed' && j.rating != null);
+        if (ratedJobs.length > 0) {
+          const avg = ratedJobs.reduce((sum, j) => sum + j.rating, 0) / ratedJobs.length;
+          details.clientRatingAverage = Math.round(avg * 10) / 10;
+        }
+      }
+
+      // Se for parceiro, buscar cupons
+      if (user.allowed_roles?.includes('partner')) {
+        const { data: partnerData } = await supabase
+          .from('partners')
+          .select('id')
+          .eq('email', user.email)
+          .maybeSingle();
+        
+        if (partnerData) {
+          const { data: coupons } = await supabase
+            .from('coupons')
+            .select('id')
+            .eq('partner_id', partnerData.id);
+          
+          if (coupons && coupons.length > 0) {
+            details.couponsCreated = coupons.length;
+            
+            const couponIds = coupons.map(c => c.id);
+            const { data: redemptions } = await supabase
+              .from('coupon_redemptions')
+              .select('id')
+              .in('coupon_id', couponIds);
+            
+            if (redemptions) details.couponsRedeemed = redemptions.length;
+          }
+        }
+      }
+
+      setUserDetails(details);
+    } catch (err: any) {
+      console.error('Erro ao buscar detalhes:', err);
+      alert('Erro ao carregar detalhes: ' + err.message);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleViewUser = async (user: any) => {
+    setViewingUser(user);
+    await fetchUserDetails(user.id);
   };
 
   const handleSendNotification = async () => {
@@ -482,8 +575,12 @@ export const AdminDashboard: React.FC = () => {
                       </div>
                   ) : (
                       filteredUsers.map(u => (
-                          <div key={u.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-                              <div className="flex items-center gap-3 min-w-0">
+                          <div 
+                            key={u.id} 
+                            className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between cursor-pointer hover:border-brand-orange transition-colors"
+                            onClick={() => handleViewUser(u)}
+                          >
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
                                   <div className="relative shrink-0">
                                       <img src={u.avatar_url} className="w-12 h-12 rounded-2xl bg-slate-100 shrink-0 object-cover"/>
                                       {u.allowed_roles?.includes('worker') && (
@@ -492,7 +589,7 @@ export const AdminDashboard: React.FC = () => {
                                           </div>
                                       )}
                                   </div>
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 flex-1">
                                       <p className="font-black text-slate-800 truncate text-sm">{u.full_name}</p>
                                       <div className="flex items-center gap-2 flex-wrap">
                                           <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
@@ -508,8 +605,8 @@ export const AdminDashboard: React.FC = () => {
                                   </div>
                               </div>
                               <button 
-                                onClick={() => setEditingUser(u)}
-                                className="p-3 bg-slate-50 text-slate-400 hover:text-brand-orange hover:bg-orange-50 rounded-xl transition-colors"
+                                onClick={(e) => { e.stopPropagation(); setEditingUser(u); }}
+                                className="p-3 bg-slate-50 text-slate-400 hover:text-brand-orange hover:bg-orange-50 rounded-xl transition-colors shrink-0"
                               >
                                   <Edit size={20}/>
                               </button>
@@ -729,6 +826,153 @@ export const AdminDashboard: React.FC = () => {
                   <input className="w-full p-4 bg-slate-50 border-0 rounded-2xl outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Título do Aviso" value={notifTitle} onChange={e => setNotifTitle(e.target.value)} />
                   <textarea className="w-full p-4 bg-slate-50 border-0 rounded-2xl h-32 outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Sua mensagem para os usuários..." value={notifMsg} onChange={e => setNotifMsg(e.target.value)} />
                   <Button fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200" onClick={handleSendNotification} disabled={loading}> <Send size={18} className="mr-2"/> {loading ? 'Enviando...' : 'Disparar Notificação'} </Button>
+              </div>
+          </div>
+      )}
+
+      {viewingUser && userDetails && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in backdrop-blur-sm overflow-y-auto">
+              <div className="bg-white rounded-3xl w-full max-w-2xl p-6 shadow-2xl my-8 animate-fade-in">
+                  <div className="flex justify-between items-start mb-6">
+                      <div className="flex items-center gap-4">
+                          <div className="relative shrink-0">
+                              <img src={userDetails.avatar_url} className="w-16 h-16 rounded-2xl bg-slate-100 object-cover"/>
+                              {userDetails.allowed_roles?.includes('worker') && (
+                                  <div className="absolute -bottom-1 -right-1">
+                                      <LevelBadge level={userDetails.level || 'bronze'} size="md" />
+                                  </div>
+                              )}
+                          </div>
+                          <div>
+                              <h3 className="font-black text-xl text-slate-800">{userDetails.full_name}</h3>
+                              <span className={`inline-block mt-1 px-2 py-0.5 rounded-lg text-xs font-black uppercase ${
+                                  userDetails.allowed_roles?.includes('admin') ? 'bg-red-100 text-red-600' :
+                                  userDetails.allowed_roles?.includes('partner') ? 'bg-purple-100 text-purple-600' :
+                                  userDetails.allowed_roles?.includes('worker') ? 'bg-blue-100 text-blue-600' :
+                                  'bg-orange-100 text-brand-orange'
+                              }`}>
+                                  {userDetails.allowed_roles?.[0]}
+                              </span>
+                          </div>
+                      </div>
+                      <button onClick={() => { setViewingUser(null); setUserDetails(null); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><X size={24}/></button>
+                  </div>
+
+                  {loadingDetails ? (
+                      <div className="text-center py-8 text-slate-400">Carregando detalhes...</div>
+                  ) : (
+                      <div className="space-y-4">
+                          {/* Informações Básicas */}
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                              <h4 className="font-bold text-slate-700 text-sm mb-3 flex items-center gap-2"><Users size={16}/> Informações Básicas</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 uppercase block">Nome</span>
+                                      <span className="text-slate-800 font-medium">{userDetails.full_name || '—'}</span>
+                                  </div>
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 uppercase block">Email</span>
+                                      <span className="text-slate-800 font-medium">{userDetails.email || '—'}</span>
+                                  </div>
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 uppercase block">Celular</span>
+                                      <span className="text-slate-800 font-medium">{userDetails.phone || '—'}</span>
+                                  </div>
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 uppercase block">CPF</span>
+                                      <span className="text-slate-800 font-medium">{userDetails.cpf || '—'}</span>
+                                  </div>
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 uppercase block">Pontos</span>
+                                      <span className="text-slate-800 font-medium">{userDetails.points || 0} pts</span>
+                                  </div>
+                                  {userDetails.city && (
+                                      <div>
+                                          <span className="text-xs font-bold text-slate-400 uppercase block">Localização</span>
+                                          <span className="text-slate-800 font-medium">{userDetails.city}{userDetails.state ? `, ${userDetails.state}` : ''}</span>
+                                      </div>
+                                  )}
+                              </div>
+                          </div>
+
+                          {/* Estatísticas como Profissional */}
+                          {userDetails.allowed_roles?.includes('worker') && (
+                              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                  <h4 className="font-bold text-blue-700 text-sm mb-3 flex items-center gap-2"><Briefcase size={16}/> Estatísticas como Profissional</h4>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                      <div>
+                                          <span className="text-xs font-bold text-blue-600 uppercase block">Serviços Realizados</span>
+                                          <span className="text-slate-800 font-bold text-lg">{userDetails.jobsAsWorker || 0}</span>
+                                      </div>
+                                      <div>
+                                          <span className="text-xs font-bold text-blue-600 uppercase block mb-1">Avaliação Média</span>
+                                          {userDetails.workerRating ? (
+                                              <div className="flex items-center gap-2">
+                                                  <StarRatingDisplay rating={userDetails.workerRating} size={18} />
+                                                  <span className="text-slate-800 font-bold text-lg">{userDetails.workerRating.toFixed(1)}</span>
+                                              </div>
+                                          ) : (
+                                              <span className="text-slate-500">Sem avaliações ainda</span>
+                                          )}
+                                      </div>
+                                      {userDetails.level && (
+                                          <div>
+                                              <span className="text-xs font-bold text-blue-600 uppercase block">Nível</span>
+                                              <span className="text-slate-800 font-medium capitalize">{userDetails.level === 'diamond' ? 'Diamante' : userDetails.level === 'gold' ? 'Ouro' : userDetails.level === 'silver' ? 'Prata' : 'Bronze'}</span>
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+                          )}
+
+                          {/* Estatísticas como Cliente */}
+                          {userDetails.allowed_roles?.includes('client') && (
+                              <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                                  <h4 className="font-bold text-brand-orange text-sm mb-3 flex items-center gap-2"><Users size={16}/> Estatísticas como Cliente</h4>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                      <div>
+                                          <span className="text-xs font-bold text-brand-orange uppercase block">Serviços Solicitados</span>
+                                          <span className="text-slate-800 font-bold text-lg">{userDetails.jobsAsClient || 0}</span>
+                                      </div>
+                                      <div>
+                                          <span className="text-xs font-bold text-brand-orange uppercase block mb-1">Média de Avaliações Dadas</span>
+                                          {userDetails.clientRatingAverage ? (
+                                              <div className="flex items-center gap-2">
+                                                  <StarRatingDisplay rating={userDetails.clientRatingAverage} size={18} />
+                                                  <span className="text-slate-800 font-bold text-lg">{userDetails.clientRatingAverage.toFixed(1)}</span>
+                                              </div>
+                                          ) : (
+                                              <span className="text-slate-500">Sem avaliações dadas ainda</span>
+                                          )}
+                                      </div>
+                                  </div>
+                              </div>
+                          )}
+
+                          {/* Estatísticas como Parceiro */}
+                          {userDetails.allowed_roles?.includes('partner') && (
+                              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+                                  <h4 className="font-bold text-purple-600 text-sm mb-3 flex items-center gap-2"><Store size={16}/> Estatísticas como Parceiro</h4>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                      <div>
+                                          <span className="text-xs font-bold text-purple-600 uppercase block">Cupons Criados</span>
+                                          <span className="text-slate-800 font-bold text-lg">{userDetails.couponsCreated || 0}</span>
+                                      </div>
+                                      <div>
+                                          <span className="text-xs font-bold text-purple-600 uppercase block">Cupons Resgatados</span>
+                                          <span className="text-slate-800 font-bold text-lg">{userDetails.couponsRedeemed || 0}</span>
+                                      </div>
+                                  </div>
+                              </div>
+                          )}
+
+                          {/* Botões de Ação */}
+                          <div className="flex gap-2 pt-2">
+                              <Button variant="outline" fullWidth onClick={() => { setViewingUser(null); setUserDetails(null); }}>Fechar</Button>
+                              <Button fullWidth onClick={() => { setViewingUser(null); setUserDetails(null); setEditingUser(userDetails); }}>Editar Usuário</Button>
+                          </div>
+                      </div>
+                  )}
               </div>
           </div>
       )}
