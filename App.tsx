@@ -14,6 +14,7 @@ import { PartnersPage } from './pages/PartnersPage';
 import { PartnerDashboard } from './pages/PartnerDashboard';
 import { supabase } from './services/supabase';
 import { NotificationBell } from './components/NotificationBell';
+import { Footer } from './components/Footer';
 import { IMAGES } from './logos';
 
 const DEFAULT_AVATAR = "https://i.ibb.co/3W009gR/user-placeholder.png"; 
@@ -730,7 +731,8 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
     }, []);
 
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
+      <div className="min-h-screen bg-slate-50 flex flex-col p-4">
+        <div className="flex-1 flex flex-col justify-center items-center">
         <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden animate-fade-in p-8">
             <div className="text-center mb-6">
                 <img src={IMAGES.LOGO_TRANSPARENT} className="w-32 mx-auto" alt="Logo" />
@@ -802,6 +804,8 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
             )}
         </div>
         {showGoogleRoleModal && <GoogleRoleModal onSelect={handleGoogleRoleSelect} />}
+        </div>
+        <Footer />
       </div>
     );
 };
@@ -1023,6 +1027,7 @@ export default function App() {
       <div className="min-h-screen bg-brand-orange flex flex-col items-center justify-center p-6 overflow-hidden">
         <Mascot className="w-64 h-64 animate-bounce-slow drop-shadow-2xl" variant="full" />
         <div className="mt-8 text-white font-black text-xl tracking-tighter animate-pulse">CARREGANDO...</div>
+        <Footer />
       </div>
   );
 
@@ -1245,6 +1250,7 @@ export default function App() {
               </div>
           </div>
       )}
+      <Footer />
     </div>
   );
 }
