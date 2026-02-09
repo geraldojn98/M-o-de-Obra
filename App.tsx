@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { User, UserRole, ServiceCategory } from './types';
 import { Mascot } from './components/Mascot';
 import { Button } from './components/Button';
+import { AuthProvider, useAuth, type AuthValue } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { 
     LogOut, Settings, User as UserIcon, Save, HelpCircle, X, Phone, Mail, 
     Store, Edit, Check, AlertTriangle, Menu, Home, Coins, ArrowRight, History, Camera, Upload,
@@ -17,7 +20,10 @@ import { NotificationBell } from './components/NotificationBell';
 import { Footer } from './components/Footer';
 import { IMAGES } from './logos';
 
-const DEFAULT_AVATAR = "https://i.ibb.co/3W009gR/user-placeholder.png"; 
+const DEFAULT_AVATAR = "https://i.ibb.co/3W009gR/user-placeholder.png";
+
+const roleToPath = (role: UserRole) =>
+  role === 'admin' ? '/admin' : role === 'partner' ? '/partner' : role === 'worker' ? '/worker' : '/client';
 
 // --- UTILS ---
 const maskPhone = (value: string) => {
@@ -813,35 +819,161 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void; onGuest?: () => void 
     );
 };
 
+function Landing() {
+  const auth = useAuth();
+  const navigate = useNavigate();
+  if (!auth.user && !auth.isGuestMode)
+    return (
+      <LoginPage
+        onLogin={(u) => { auth.setUser(u); navigate(roleToPath(u.role)); }}
+        onGuest={() => { auth.setIsGuestMode(true); navigate('/client'); }}
+      />
+    );
+  return <Navigate to={roleToPath(auth.effectiveUser.role)} replace />;
+}
+
+function AuthLoginPage() {
+  const auth = useAuth();
+  const navigate = useNavigate();
+  return (
+    <LoginPage
+      onLogin={(u) => { auth.setUser(u); navigate(roleToPath(u.role)); }}
+      onGuest={() => { auth.setIsGuestMode(true); navigate('/client'); }}
+    />
+  );
+}
+
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const auth = useAuth();
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
+  const getRoleBadge = (role: UserRole) => {
+    switch (role) {
+      case 'admin': return { label: 'Admin', bg: 'bg-red-100 text-red-600' };
+      case 'partner': return { label: 'Parceiro', bg: 'bg-purple-100 text-purple-600' };
+      case 'worker': return { label: 'Profissional', bg: 'bg-blue-100 text-blue-600' };
+      default: return { label: 'Cliente', bg: 'bg-orange-100 text-brand-orange' };
+    }
+  };
+  const roleInfo = getRoleBadge(auth.effectiveUser.role);
+  const allowedRoles = auth.effectiveUser.allowed_roles || [];
+  const hasClient = allowedRoles.includes('client');
+  const hasWorker = allowedRoles.includes('worker');
+  const canSwitchRole = !auth.isGuest && hasClient && hasWorker && auth.effectiveUser.role !== 'admin' && auth.effectiveUser.role !== 'partner';
+  const canAddWorker = hasClient && !hasWorker;
+  const canAddClient = hasWorker && !hasClient;
+  const isDashboardPath = pathname.startsWith('/client') || pathname.startsWith('/worker') || pathname.startsWith('/admin') || pathname.startsWith('/partner');
+  const isPartnersPath = pathname === '/partners';
+
+  const DrawerMenu = () => (
+    <div className="fixed inset-0 z-[100] flex">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => auth.setIsDrawerOpen(false)} />
+      <div className="relative bg-white w-72 h-full shadow-2xl animate-fade-in flex flex-col">
+        <div className="p-6 border-b border-slate-100 bg-orange-50/50">
+          <div className="flex items-center gap-3 mb-2">
+            <img src={auth.effectiveUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" alt="" />
+            <div className="min-w-0">
+              <p className="font-bold text-slate-800 text-lg truncate">{auth.effectiveUser.name}</p>
+              <p className="text-xs text-slate-500 truncate">{auth.effectiveUser.city || 'Local não definido'}</p>
+            </div>
+          </div>
+          <button onClick={() => { auth.setShowEditProfile(true); auth.setIsDrawerOpen(false); }} className="text-xs font-bold text-brand-orange hover:text-orange-700 flex items-center gap-1">
+            <Edit size={12} /> Editar Perfil
+          </button>
+        </div>
+        <div className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {canSwitchRole && (
+            <div className="bg-slate-50 rounded-xl p-3 mb-2 border border-slate-100">
+              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Usar conta como</p>
+              <div className="flex gap-2">
+                {auth.effectiveUser.role === 'worker' && <button onClick={() => auth.handleSwitchRole('client')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Cliente</button>}
+                {auth.effectiveUser.role === 'client' && <button onClick={() => auth.handleSwitchRole('worker')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Profissional</button>}
+              </div>
+            </div>
+          )}
+          {(canAddWorker || canAddClient) && (
+            <div className="bg-blue-50 rounded-xl p-3 mb-2 border border-blue-100">
+              <p className="text-xs font-bold text-slate-600 mb-2">Adicionar outro perfil</p>
+              {canAddWorker && <button onClick={() => auth.handleAddRole('worker')} className="w-full py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Também quero atuar como Profissional</button>}
+              {canAddClient && <button onClick={() => auth.handleAddRole('client')} className="w-full py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Também quero atuar como Cliente</button>}
+            </div>
+          )}
+          <button onClick={() => { auth.setIsDrawerOpen(false); navigate(roleToPath(auth.effectiveUser.role)); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${isDashboardPath ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
+            <Home size={20} /> Início
+          </button>
+          {auth.effectiveUser.role !== 'partner' && (
+            <button onClick={() => { auth.setIsDrawerOpen(false); navigate('/partners'); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${isPartnersPath ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
+              <Store size={20} /> Lojas Parceiras
+            </button>
+          )}
+          <button onClick={() => { auth.setShowHelp(true); auth.setIsDrawerOpen(false); }} className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-slate-600 hover:bg-slate-50">
+            <HelpCircle size={20} /> Ajuda
+          </button>
+        </div>
+        <div className="p-4 border-t border-slate-100">
+          <button onClick={async () => { await supabase.auth.signOut(); auth.setUser(null); auth.setIsDrawerOpen(false); navigate('/'); }} className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-red-500 hover:bg-red-50">
+            <LogOut size={20} /> Sair do App
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-orange-100 overflow-x-hidden w-full">
+      <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
+        <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
+          <div className="flex items-center gap-3">
+            {auth.isGuest ? (
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-600 text-sm">Visitante</span>
+                <button onClick={() => { auth.setIsGuestMode(false); auth.setUser(null); navigate('/'); }} className="text-xs font-bold text-brand-orange bg-orange-50 px-3 py-1.5 rounded-full">Fazer login</button>
+              </div>
+            ) : (
+              <button onClick={() => auth.setIsDrawerOpen(true)} className="flex items-center gap-3 group">
+                <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 group-hover:border-brand-orange transition-colors">
+                  <img src={auth.effectiveUser.avatar} className="w-full h-full object-cover" alt="" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="font-black text-slate-800 text-sm leading-tight truncate max-w-[120px] sm:max-w-none">{auth.effectiveUser.name.split(' ')[0]}</span>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>{roleInfo.label}</span>
+                  </div>
+                </div>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 sm:gap-4">
+            {!auth.isGuest && <NotificationBell userId={auth.effectiveUser.id} />}
+            {!auth.isGuest && auth.effectiveUser.role !== 'admin' && auth.effectiveUser.role !== 'partner' && (
+              <button onClick={() => auth.setShowPointsModal(true)} className="bg-yellow-50 hover:bg-yellow-100 px-2 sm:px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-yellow-200 transition-colors">
+                <Coins size={16} className="text-yellow-500 fill-yellow-500" />
+                <span className="text-slate-700 font-black text-xs">{auth.effectiveUser.points}</span>
+              </button>
+            )}
+            {!auth.isGuest && (
+              <button onClick={() => auth.setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
+                <Mascot className="w-10 h-10 object-contain rounded-full border-2 border-white shadow-sm" variant="face" />
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+      {!auth.isGuest && auth.isDrawerOpen && <DrawerMenu />}
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
+        {children}
+      </main>
+    </div>
+  );
+}
+
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showPointsModal, setShowPointsModal] = useState(false);
-  const [currentPage, setCurrentPageState] = useState<'dashboard' | 'partners'>(() => {
-    if (typeof window === 'undefined') return 'dashboard';
-    const saved = localStorage.getItem('mao-de-obra-current-page');
-    return (saved === 'partners' ? 'partners' : 'dashboard');
-  });
-  const setCurrentPage = (page: 'dashboard' | 'partners') => {
-    setCurrentPageState(page);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('mao-de-obra-current-page', page);
-      window.history.pushState({ page }, '', window.location.href);
-    }
-  };
-
-  // Navegação "nativa": botão Voltar do Android
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      const page = e.state?.page;
-      if (page === 'dashboard' || page === 'partners') setCurrentPageState(page);
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
   const GUEST_USER: User = {
     id: '',
@@ -850,13 +982,12 @@ export default function App() {
     role: 'client',
     points: 0,
     allowed_roles: ['client'],
+    avatar: DEFAULT_AVATAR,
     city: undefined,
     state: undefined,
     latitude: undefined,
     longitude: undefined,
   };
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [showCompleteProfile, setShowCompleteProfile] = useState(false);
   const [showWorkerSpecialty, setShowWorkerSpecialty] = useState(false);
 
@@ -999,9 +1130,13 @@ export default function App() {
 
   const effectiveUser = currentUser || GUEST_USER;
   const isGuest = !currentUser && isGuestMode;
+  const navigate = useNavigate();
+  const location = useLocation();
+
   useEffect(() => {
-    if (currentUser || isGuestMode) window.history.replaceState({ page: currentPage }, '', window.location.href);
-  }, [currentUser, isGuestMode, currentPage]);
+    if (currentUser && (location.pathname === '/' || location.pathname === '/auth'))
+      navigate(roleToPath(currentUser.role), { replace: true });
+  }, [currentUser, location.pathname, navigate]);
 
   const checkPermissionsAndLocation = async (userId: string) => {
       if ("geolocation" in navigator) {
@@ -1067,35 +1202,10 @@ export default function App() {
       </div>
   );
 
-  if (!currentUser && !isGuestMode) return (
-      <LoginPage
-        onLogin={setCurrentUser}
-        onGuest={() => {
-          setIsGuestMode(true);
-          window.history.replaceState({ page: 'dashboard' }, '', window.location.href);
-        }}
-      />
-  );
-
-  const getRoleBadge = (role: UserRole) => {
-      switch(role) {
-          case 'admin': return { label: 'Admin', bg: 'bg-red-100 text-red-600' };
-          case 'partner': return { label: 'Parceiro', bg: 'bg-purple-100 text-purple-600' };
-          case 'worker': return { label: 'Profissional', bg: 'bg-blue-100 text-blue-600' };
-          default: return { label: 'Cliente', bg: 'bg-orange-100 text-brand-orange' };
-      }
-  };
-  const roleInfo = getRoleBadge(effectiveUser.role);
-  const allowedRoles = effectiveUser.allowed_roles || [];
-  const hasClient = allowedRoles.includes('client');
-  const hasWorker = allowedRoles.includes('worker');
-  const canSwitchRole = !isGuest && hasClient && hasWorker && effectiveUser.role !== 'admin' && effectiveUser.role !== 'partner';
-  const canAddWorker = hasClient && !hasWorker;
-  const canAddClient = hasWorker && !hasClient;
-
   const handleSwitchRole = (newRole: 'client' | 'worker') => {
     setCurrentUser(prev => prev ? { ...prev, role: newRole } : null);
     setIsDrawerOpen(false);
+    navigate(roleToPath(newRole));
   };
 
   const handleAddRole = async (newRole: 'client' | 'worker') => {
@@ -1112,133 +1222,40 @@ export default function App() {
     }
   };
 
-  const DrawerMenu = () => (
-      <div className="fixed inset-0 z-[100] flex">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)}></div>
-          <div className="relative bg-white w-72 h-full shadow-2xl animate-fade-in flex flex-col">
-              <div className="p-6 border-b border-slate-100 bg-orange-50/50">
-                   <div className="flex items-center gap-3 mb-2">
-                       <img src={effectiveUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" alt="" />
-                       <div className="min-w-0">
-                           <p className="font-bold text-slate-800 text-lg truncate">{effectiveUser.name}</p>
-                           <p className="text-xs text-slate-500 truncate">{effectiveUser.city || 'Local não definido'}</p>
-                       </div>
-                   </div>
-                   <button onClick={() => { setShowEditProfile(true); setIsDrawerOpen(false); }} className="text-xs font-bold text-brand-orange hover:text-orange-700 flex items-center gap-1">
-                       <Edit size={12}/> Editar Perfil
-                   </button>
-              </div>
-              <div className="flex-1 p-4 space-y-2 overflow-y-auto">
-                  {canSwitchRole && (
-                      <div className="bg-slate-50 rounded-xl p-3 mb-2 border border-slate-100">
-                          <p className="text-xs font-bold text-slate-500 uppercase mb-2">Usar conta como</p>
-                          <div className="flex gap-2">
-                              {effectiveUser.role === 'worker' && (
-                                  <button onClick={() => handleSwitchRole('client')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Cliente</button>
-                              )}
-                              {effectiveUser.role === 'client' && (
-                                  <button onClick={() => handleSwitchRole('worker')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Profissional</button>
-                              )}
-                          </div>
-                      </div>
-                  )}
-                  {(canAddWorker || canAddClient) && (
-                      <div className="bg-blue-50 rounded-xl p-3 mb-2 border border-blue-100">
-                          <p className="text-xs font-bold text-slate-600 mb-2">Adicionar outro perfil</p>
-                          {canAddWorker && (
-                              <button onClick={() => handleAddRole('worker')} className="w-full py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Também quero atuar como Profissional</button>
-                          )}
-                          {canAddClient && (
-                              <button onClick={() => handleAddRole('client')} className="w-full py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Também quero atuar como Cliente</button>
-                          )}
-                      </div>
-                  )}
-                  <button onClick={() => { setCurrentPage('dashboard'); setIsDrawerOpen(false); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'dashboard' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
-                      <Home size={20}/> Início
-                  </button>
-                  {effectiveUser.role !== 'partner' && (
-                      <button onClick={() => { setCurrentPage('partners'); setIsDrawerOpen(false); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'partners' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
-                          <Store size={20}/> Lojas Parceiras
-                      </button>
-                  )}
-                  <button onClick={() => { setShowHelp(true); setIsDrawerOpen(false); }} className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-slate-600 hover:bg-slate-50">
-                      <HelpCircle size={20}/> Ajuda
-                  </button>
-              </div>
-              <div className="p-4 border-t border-slate-100">
-                   <button onClick={async () => { await supabase.auth.signOut(); setCurrentUser(null); setIsDrawerOpen(false); }} className="w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors text-red-500 hover:bg-red-50">
-                        <LogOut size={20} /> Sair do App
-                    </button>
-              </div>
-          </div>
-      </div>
-  );
+  const authValue: AuthValue = {
+    user: currentUser,
+    setUser: setCurrentUser,
+    isLoading,
+    isGuestMode,
+    setIsGuestMode,
+    effectiveUser,
+    isGuest,
+    fetchProfileAndSetUser,
+    setShowEditProfile,
+    setShowHelp,
+    setShowPointsModal,
+    setIsDrawerOpen,
+    isDrawerOpen,
+    setShowWorkerSpecialty,
+    setShowCompleteProfile,
+    handleSwitchRole,
+    handleAddRole,
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-orange-100 overflow-x-hidden w-full">
-      <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
-        <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
-          
-          {/* LEFT SIDE: Profile Drawer Button (ou Entrar se visitante) */}
-          <div className="flex items-center gap-3">
-              {isGuest ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-600 text-sm">Visitante</span>
-                  <button onClick={() => { setIsGuestMode(false); setCurrentUser(null); }} className="text-xs font-bold text-brand-orange bg-orange-50 px-3 py-1.5 rounded-full">Fazer login</button>
-                </div>
-              ) : (
-              <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-3 group">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 group-hover:border-brand-orange transition-colors">
-                     <img src={effectiveUser.avatar} className="w-full h-full object-cover"/>
-                  </div>
-                  <div className="flex flex-col text-left">
-                      <span className="font-black text-slate-800 text-sm leading-tight truncate max-w-[120px] sm:max-w-none">
-                          {effectiveUser.name.split(' ')[0]}
-                      </span>
-                      <div className="flex items-center gap-1">
-                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>{roleInfo.label}</span>
-                      </div>
-                  </div>
-              </button>
-              )}
-          </div>
+    <AuthProvider value={authValue}>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/auth" element={<AuthLoginPage />} />
+        <Route path="/partners" element={<ProtectedRoute allowedRoles={['client', 'worker', 'admin', 'partner']}><AppLayout><PartnersPage /></AppLayout></ProtectedRoute>} />
+        <Route path="/client/*" element={<ProtectedRoute allowedRoles={['client']} allowGuest><AppLayout><ClientDashboard user={effectiveUser} isGuest={isGuest} /></AppLayout></ProtectedRoute>} />
+        <Route path="/worker/*" element={<ProtectedRoute allowedRoles={['worker']}><AppLayout><WorkerDashboard user={effectiveUser} /></AppLayout></ProtectedRoute>} />
+        <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']}><AppLayout><AdminDashboard /></AppLayout></ProtectedRoute>} />
+        <Route path="/partner/*" element={<ProtectedRoute allowedRoles={['partner']}><AppLayout><PartnerDashboard user={effectiveUser} /></AppLayout></ProtectedRoute>} />
+      </Routes>
 
-          {/* RIGHT SIDE: Notifications, Points, Mascot (Face) — oculto para visitante */}
-          <div className="flex items-center gap-2 sm:gap-4">
-              {!isGuest && <NotificationBell userId={effectiveUser.id} />}
-              {!isGuest && effectiveUser.role !== 'admin' && effectiveUser.role !== 'partner' && (
-                  <button onClick={() => setShowPointsModal(true)} className="bg-yellow-50 hover:bg-yellow-100 px-2 sm:px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-yellow-200 transition-colors">
-                      <Coins size={16} className="text-yellow-500 fill-yellow-500" />
-                      <span className="text-slate-700 font-black text-xs">{effectiveUser.points}</span>
-                  </button>
-              )}
-              {!isGuest && (
-              <button onClick={() => setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
-                  <Mascot className="w-10 h-10 object-contain rounded-full border-2 border-white shadow-sm" variant="face" />
-              </button>
-              )}
-          </div>
-        </div>
-      </header>
-
-      {!isGuest && isDrawerOpen && <DrawerMenu />}
-
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
-        {isGuest ? (
-          <ClientDashboard user={effectiveUser} onNavigateToPartners={() => setCurrentPage('partners')} isGuest={true} />
-        ) : effectiveUser.role === 'partner' ? (
-          <PartnerDashboard user={effectiveUser} />
-        ) : currentPage === 'partners' ? (
-          <PartnersPage />
-        ) : (
-           <>
-               {effectiveUser.role === 'admin' && <AdminDashboard />}
-               {effectiveUser.role === 'client' && <ClientDashboard user={effectiveUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
-               {effectiveUser.role === 'worker' && <WorkerDashboard user={effectiveUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
-           </>
-         )}
-      </main>
-
+      {(currentUser || isGuestMode) && (
+        <>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showPointsModal && currentUser && <PointsModal user={currentUser} onClose={() => setShowPointsModal(false)} />}
       
@@ -1306,6 +1323,8 @@ export default function App() {
           </div>
       )}
       <Footer />
-    </div>
+        </>
+      )}
+    </AuthProvider>
   );
 }

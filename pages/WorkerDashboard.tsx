@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store, ImagePlus, Trash2 } from 'lucide-react';
@@ -17,7 +18,6 @@ export interface PortfolioItem {
 
 interface WorkerDashboardProps {
   user: User;
-  onNavigateToPartners: () => void;
 }
 
 const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => (
@@ -65,7 +65,8 @@ const WorkerAuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) =
     );
 };
 
-export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNavigateToPartners }) => {
+export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'jobs' | 'my_jobs' | 'history' | 'portfolio'>('jobs');
   const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
@@ -552,7 +553,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
                         {featuredCoupons.map(coupon => (
                             <button 
                                 key={coupon.id} 
-                                onClick={onNavigateToPartners}
+                                onClick={() => navigate('/partners')}
                                 className="w-72 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
                             >
                                 <div className="bg-white border border-slate-100 w-14 h-14 rounded-lg flex items-center justify-center shrink-0 p-1">

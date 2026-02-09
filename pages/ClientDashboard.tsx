@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import * as Icons from 'lucide-react';
@@ -22,7 +23,6 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 interface ClientDashboardProps {
   user: User;
-  onNavigateToPartners: () => void;
   isGuest?: boolean;
 }
 
@@ -71,7 +71,8 @@ const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void
     );
 };
 
-export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNavigateToPartners, isGuest }) => {
+export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest }) => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'home' | 'jobs'>('home');
   const [viewMode, setViewMode] = useState<'selection' | 'post_job' | 'find_pro'>('selection');
   
@@ -485,7 +486,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                                 {featuredCoupons.map(coupon => (
                                     <button 
                                         key={coupon.id} 
-                                        onClick={onNavigateToPartners}
+                                        onClick={() => navigate('/partners')}
                                         className="w-72 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
                                     >
                                         <div className="bg-white border border-slate-100 w-14 h-14 rounded-lg flex items-center justify-center shrink-0 p-1">
