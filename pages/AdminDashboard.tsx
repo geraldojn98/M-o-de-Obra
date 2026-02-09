@@ -177,6 +177,8 @@ export const AdminDashboard: React.FC = () => {
   const [viewingUser, setViewingUser] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [showBanModal, setShowBanModal] = useState(false);
+  const [banType, setBanType] = useState<'7days' | 'indefinite' | null>(null);
 
   // Notificações por aba
   const [notifications, setNotifications] = useState<Record<string, number>>({
@@ -479,7 +481,17 @@ export const AdminDashboard: React.FC = () => {
         }
       }
 
-      // Se for parceiro, buscar cupons
+      // Buscar cupons resgatados pelo usuário (qualquer tipo de usuário)
+      const { data: userRedemptions } = await supabase
+        .from('coupon_redemptions')
+        .select('id')
+        .eq('user_id', userId);
+      
+      if (userRedemptions) {
+        details.couponsRedeemed = userRedemptions.length;
+      }
+
+      // Se for parceiro, buscar cupons criados
       if (user.allowed_roles?.includes('partner')) {
         const { data: partnerData } = await supabase
           .from('partners')
@@ -493,16 +505,8 @@ export const AdminDashboard: React.FC = () => {
             .select('id')
             .eq('partner_id', partnerData.id);
           
-          if (coupons && coupons.length > 0) {
+          if (coupons) {
             details.couponsCreated = coupons.length;
-            
-            const couponIds = coupons.map(c => c.id);
-            const { data: redemptions } = await supabase
-              .from('coupon_redemptions')
-              .select('id')
-              .in('coupon_id', couponIds);
-            
-            if (redemptions) details.couponsRedeemed = redemptions.length;
           }
         }
       }
@@ -1087,10 +1091,24 @@ export const AdminDashboard: React.FC = () => {
                                       <span className="text-xs font-bold text-slate-400 uppercase block">Pontos</span>
                                       <span className="text-slate-800 font-medium">{userDetails.points || 0} pts</span>
                                   </div>
+                                  <div>
+                                      <span className="text-xs font-bold text-slate-400 uppercase block">Cupons Resgatados</span>
+                                      <span className="text-slate-800 font-medium">{userDetails.couponsRedeemed || 0}</span>
+                                  </div>
                                   {userDetails.city && (
                                       <div>
                                           <span className="text-xs font-bold text-slate-400 uppercase block">Localização</span>
                                           <span className="text-slate-800 font-medium">{userDetails.city}{userDetails.state ? `, ${userDetails.state}` : ''}</span>
+                                      </div>
+                                  )}
+                                  {userDetails.active === false && (
+                                      <div className="sm:col-span-2">
+                                          <span className="text-xs font-bold text-red-600 uppercase block">Status da Conta</span>
+                                          <span className="text-red-600 font-bold">
+                                              {userDetails.punishment_until 
+                                                ? `Banido até ${new Date(userDetails.punishment_until).toLocaleDateString('pt-BR')}`
+                                                : 'Banido indefinidamente'}
+                                          </span>
                                       </div>
                                   )}
                               </div>
@@ -1168,9 +1186,139 @@ export const AdminDashboard: React.FC = () => {
                           )}
 
                           {/* Botões de Ação */}
-                          <div className="flex gap-2 pt-2">
+                          <div className="flex flex-col sm:flex-row gap-2 pt-2">
                               <Button variant="outline" fullWidth onClick={() => { setViewingUser(null); setUserDetails(null); }}>Fechar</Button>
                               <Button fullWidth onClick={() => { setViewingUser(null); setUserDetails(null); setEditingUser(userDetails); }}>Editar Usuário</Button>
+                              {userDetails.allowed_roles?.includes('admin') ? null : (
+                                  <Button 
+                                    variant="danger" 
+                                    fullWidth 
+                                    onClick={() => setShowBanModal(true)}
+                                    className="flex items-center justify-center gap-2"
+                                  >
+                                      <Ban size={18} />
+                                      {userDetails.active === false ? 'Gerenciar Banimento' : 'Banir Usuário'}
+                                  </Button>
+                              )}
+                          </div>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
+
+      {/* Modal de Banimento */}
+      {showBanModal && userDetails && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4 animate-fade-in backdrop-blur-sm">
+              <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl animate-fade-in">
+                  <div className="flex justify-between items-start mb-4">
+                      <div>
+                          <h3 className="font-bold text-xl text-slate-800">Banir Usuário</h3>
+                          <p className="text-sm text-slate-600 mt-1">{userDetails.full_name}</p>
+                      </div>
+                      <button onClick={() => { setShowBanModal(false); setBanType(null); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><X size={24}/></button>
+                  </div>
+
+                  {userDetails.active === false ? (
+                      <div className="space-y-4">
+                          <div className="bg-red-50 border border-red-200 p-4 rounded-xl">
+                              <p className="text-sm font-bold text-red-800 mb-2">Usuário está banido</p>
+                              <p className="text-xs text-red-700">
+                                  {userDetails.punishment_until 
+                                    ? `Banimento expira em: ${new Date(userDetails.punishment_until).toLocaleDateString('pt-BR')}`
+                                    : 'Banimento indefinido'}
+                              </p>
+                          </div>
+                          <div className="space-y-2">
+                              <button
+                                  onClick={async () => {
+                                      if (!confirm('Remover banimento deste usuário?')) return;
+                                      setLoading(true);
+                                      try {
+                                          await supabase.from('profiles').update({ active: true, punishment_until: null }).eq('id', userDetails.id);
+                                          alert('Banimento removido com sucesso!');
+                                          setShowBanModal(false);
+                                          setBanType(null);
+                                          await fetchUserDetails(userDetails.id);
+                                          fetchData();
+                                      } catch (e: any) {
+                                          alert('Erro: ' + e.message);
+                                      } finally {
+                                          setLoading(false);
+                                      }
+                                  }}
+                                  className="w-full p-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-colors"
+                              >
+                                  Remover Banimento
+                              </button>
+                              <button
+                                  onClick={() => setBanType('indefinite')}
+                                  className="w-full p-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors"
+                              >
+                                  Alterar para Banimento Indefinido
+                              </button>
+                          </div>
+                      </div>
+                  ) : banType === null ? (
+                      <div className="space-y-3">
+                          <p className="text-sm text-slate-600 mb-4">Escolha o tipo de banimento:</p>
+                          <button
+                              onClick={() => setBanType('7days')}
+                              className="w-full p-4 bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 hover:border-brand-orange rounded-xl text-left transition-colors"
+                          >
+                              <div className="font-bold text-slate-800 mb-1">Banir por 7 dias</div>
+                              <div className="text-xs text-slate-600">O banimento será removido automaticamente após 7 dias</div>
+                          </button>
+                          <button
+                              onClick={() => setBanType('indefinite')}
+                              className="w-full p-4 bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 hover:border-red-500 rounded-xl text-left transition-colors"
+                          >
+                              <div className="font-bold text-slate-800 mb-1">Banir indefinidamente</div>
+                              <div className="text-xs text-slate-600">O banimento só será removido manualmente pelo admin</div>
+                          </button>
+                      </div>
+                  ) : (
+                      <div className="space-y-4">
+                          <div className="bg-red-50 border border-red-200 p-4 rounded-xl">
+                              <p className="text-sm font-bold text-red-800 mb-2">Confirmar banimento?</p>
+                              <p className="text-xs text-red-700">
+                                  {banType === '7days' 
+                                    ? 'O usuário será banido por 7 dias e não poderá criar/aceitar serviços durante este período.'
+                                    : 'O usuário será banido indefinidamente até que você remova o banimento manualmente.'}
+                              </p>
+                          </div>
+                          <div className="flex gap-2">
+                              <Button variant="outline" fullWidth onClick={() => setBanType(null)}>Voltar</Button>
+                              <Button 
+                                  variant="danger" 
+                                  fullWidth 
+                                  onClick={async () => {
+                                      setLoading(true);
+                                      try {
+                                          const until = banType === '7days' 
+                                            ? (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString(); })()
+                                            : null;
+                                          
+                                          await supabase.from('profiles').update({ 
+                                              active: false, 
+                                              punishment_until: until 
+                                          }).eq('id', userDetails.id);
+                                          
+                                          alert('Usuário banido com sucesso!');
+                                          setShowBanModal(false);
+                                          setBanType(null);
+                                          await fetchUserDetails(userDetails.id);
+                                          fetchData();
+                                      } catch (e: any) {
+                                          alert('Erro: ' + e.message);
+                                      } finally {
+                                          setLoading(false);
+                                      }
+                                  }}
+                                  disabled={loading}
+                              >
+                                  {loading ? 'Processando...' : 'Confirmar Banimento'}
+                              </Button>
                           </div>
                       </div>
                   )}
