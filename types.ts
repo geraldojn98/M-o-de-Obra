@@ -91,6 +91,10 @@ export interface Message {
   senderId: string;
   content: string;
   createdAt: string;
+  /** text | image | audio */
+  messageType?: 'text' | 'image' | 'audio';
+  /** URL do arquivo no Storage (quando messageType é image ou audio) */
+  mediaUrl?: string;
 }
 
 export interface Notification {

@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
-import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store } from 'lucide-react';
+import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store, ImagePlus, Trash2 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 import { LevelBadge } from '../components/LevelBadge';
+import { EmptyState } from '../components/EmptyState';
 import * as NotificationService from '../services/notifications';
+
+export interface PortfolioItem {
+  id: string;
+  image_url: string;
+  description?: string | null;
+  created_at: string;
+}
 
 interface WorkerDashboardProps {
   user: User;
@@ -58,10 +66,12 @@ const WorkerAuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) =
 };
 
 export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNavigateToPartners }) => {
-  const [activeTab, setActiveTab] = useState<'jobs' | 'my_jobs' | 'history'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'my_jobs' | 'history' | 'portfolio'>('jobs');
   const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [featuredCoupons, setFeaturedCoupons] = useState<Coupon[]>([]);
+  const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
+  const [portfolioUploading, setPortfolioUploading] = useState(false);
   const [hasActiveJob, setHasActiveJob] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
   const [todayPoints, setTodayPoints] = useState(0);
@@ -73,6 +83,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   const [modalType, setModalType] = useState<'cancel' | 'finish' | 'audit' | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const portfolioInputRef = useRef<HTMLInputElement>(null);
 
   const [appealModalOpen, setAppealModalOpen] = useState(false);
   const [appealText, setAppealText] = useState('');
@@ -171,6 +182,10 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
         const active = parsedJobs.find((j: any) => j.status === 'in_progress' || j.status === 'waiting_verification');
         setHasActiveJob(!!active);
     }
+
+    // 3. Portfolio
+    const { data: portfolioData } = await supabase.from('worker_portfolio').select('id, image_url, description, created_at').eq('worker_id', user.id).order('created_at', { ascending: false });
+    setPortfolioItems((portfolioData || []).map((p: any) => ({ id: p.id, image_url: p.image_url, description: p.description, created_at: p.created_at })));
   };
 
   const handleRefuseDirectProposal = async (jobId: string) => {
@@ -389,6 +404,35 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
   };
   const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
 
+  const handlePortfolioImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    e.target.value = '';
+    setPortfolioUploading(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `${user.id}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('worker-portfolio').upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('worker-portfolio').getPublicUrl(path);
+      const { data, error } = await supabase.from('worker_portfolio').insert({ worker_id: user.id, image_url: urlData.publicUrl }).select().single();
+      if (error) throw error;
+      if (data) setPortfolioItems(prev => [{ id: data.id, image_url: data.image_url, description: data.description, created_at: data.created_at }, ...prev]);
+      showToast('Foto adicionada ao portfólio!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao enviar foto.', 'error');
+    } finally {
+      setPortfolioUploading(false);
+    }
+  };
+
+  const removePortfolioItem = async (id: string) => {
+    if (!confirm('Remover esta foto do portfólio?')) return;
+    const { error } = await supabase.from('worker_portfolio').delete().eq('id', id);
+    if (error) showToast(error.message, 'error');
+    else { setPortfolioItems(prev => prev.filter(p => p.id !== id)); showToast('Foto removida.', 'success'); }
+  };
+
   const openAppealModal = async () => {
     const { data: punishedJob } = await supabase.from('jobs').select('id').eq('worker_id', user.id).eq('admin_verdict', 'punished').limit(1).maybeSingle();
     setAppealJobId(punishedJob?.id || null);
@@ -458,15 +502,14 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
          <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('jobs')}>Novos Pedidos</button>
          <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'my_jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('my_jobs')}>Meus Serviços</button>
          <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'history' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('history')}>Histórico</button>
+         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'portfolio' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('portfolio')}>Meu Portfólio</button>
        </div>
 
        {activeTab === 'jobs' && (
          <div className="space-y-4 animate-fade-in">
            {hasActiveJob && <div className="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-sm mb-2 flex items-center gap-2"><Clock size={16} /> Você tem um serviço ativo. Termine-o para pegar outro.</div>}
            {availableJobs.length === 0 && (
-               <div className="text-center py-10 opacity-60">
-                   <p className="text-slate-500">Nenhum serviço disponível em {user.city}.</p>
-               </div>
+               <EmptyState icon={Clock} title="Nenhum serviço disponível" description={user.city ? `Em ${user.city} no momento.` : 'Nenhum pedido novo no momento.'} />
            )}
            {availableJobs.map(job => {
              const isDirectProposal = job.workerId === user.id;
@@ -535,7 +578,9 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
        {/* My Jobs & History remain largely similar, reused from previous state logic */}
        {activeTab === 'my_jobs' && (
            <div className="space-y-6 animate-fade-in pb-20">
-                {currentActiveJobs.map(job => (
+                {currentActiveJobs.length === 0 ? (
+                  <EmptyState icon={CheckCircle} title="Nenhum serviço em andamento" description="Aceite um pedido para ver aqui." />
+                ) : currentActiveJobs.map(job => (
                     <div key={job.id} className="bg-white p-5 rounded-xl border border-brand-orange/30 shadow-sm relative overflow-hidden">
                         <div className={`absolute top-0 right-0 text-white text-xs px-2 py-1 rounded-bl-lg font-bold ${job.status === 'waiting_verification' ? 'bg-purple-500' : 'bg-brand-orange'}`}>{job.status === 'waiting_verification' ? 'Aguardando Cliente' : 'Em Andamento'}</div>
                         <div className="mb-4">
@@ -557,7 +602,9 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
         
        {activeTab === 'history' && (
            <div className="space-y-4 animate-fade-in pb-20">
-               {historyJobs.map(job => (
+               {historyJobs.length === 0 ? (
+                 <EmptyState icon={Clock} title="Nenhum histórico ainda" description="Serviços concluídos ou cancelados aparecerão aqui." />
+               ) : historyJobs.map(job => (
                    <div key={job.id} className="bg-slate-50 p-5 rounded-xl border border-slate-200 opacity-90 hover:opacity-100 transition-opacity">
                        <div className="flex justify-between items-start">
                             <div>
@@ -568,6 +615,27 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user, onNaviga
                        </div>
                    </div>
                ))}
+           </div>
+       )}
+
+       {activeTab === 'portfolio' && (
+           <div className="animate-fade-in pb-20 space-y-4">
+             <input ref={portfolioInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={handlePortfolioImageSelect} />
+             <Button type="button" onClick={() => portfolioInputRef.current?.click()} disabled={portfolioUploading} className="w-full flex items-center justify-center gap-2">
+               <ImagePlus size={18} /> {portfolioUploading ? 'Enviando...' : 'Adicionar foto ao portfólio'}
+             </Button>
+             {portfolioItems.length === 0 ? (
+               <EmptyState icon={ImagePlus} title="Nenhuma foto no portfólio" description="Adicione fotos dos seus trabalhos para clientes verem." />
+             ) : (
+               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                 {portfolioItems.map(item => (
+                   <div key={item.id} className="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square">
+                     <img src={item.image_url} alt={item.description || 'Portfólio'} className="w-full h-full object-cover" />
+                     <button type="button" onClick={() => removePortfolioItem(item.id)} className="absolute top-2 right-2 p-1.5 rounded-full bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remover"><Trash2 size={14} /></button>
+                   </div>
+                 ))}
+               </div>
+             )}
            </div>
        )}
 

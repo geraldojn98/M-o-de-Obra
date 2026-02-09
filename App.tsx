@@ -228,10 +228,8 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
             <p className="text-slate-500 mb-6 leading-relaxed">Nossa equipe de suporte está pronta para te atender!</p>
             
             <div className="space-y-3">
-                <a href="https://wa.me/5537991561461" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-green-200">
-                    <MessageCircle size={24} /> WhatsApp (37) 99156-1461
-                </a>
-                <a href="mailto:suporte@appmaodeobra.com" className="flex items-center justify-center gap-3 w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-4 rounded-2xl transition-all">
+                <p className="text-xs text-slate-500">Entre em contato pelo e-mail ou use o chat dentro do app com seu profissional.</p>
+                <a href="mailto:suporte@appmaodeobra.com" className="flex items-center justify-center gap-3 w-full bg-brand-orange hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-orange-200">
                     <Mail size={24} /> suporte@appmaodeobra.com
                 </a>
             </div>
@@ -611,7 +609,7 @@ const GoogleRoleModal: React.FC<{ onSelect: (role: 'client' | 'worker') => void 
     );
 };
 
-const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
+const LoginPage: React.FC<{ onLogin: (user: User) => void; onGuest?: () => void }> = ({ onLogin, onGuest }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -785,6 +783,11 @@ const LoginPage: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
                         Entrar com Google
                     </button>
                     <button type="button" onClick={()=>setIsRegistering(true)} className="w-full text-center text-sm text-slate-500">Criar conta</button>
+                    {onGuest && (
+                        <button type="button" onClick={onGuest} className="w-full text-center text-sm text-brand-orange font-bold pt-2 border-t border-slate-100 mt-2">
+                            Continuar como visitante
+                        </button>
+                    )}
                 </form>
             ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
@@ -823,7 +826,34 @@ export default function App() {
   });
   const setCurrentPage = (page: 'dashboard' | 'partners') => {
     setCurrentPageState(page);
-    if (typeof window !== 'undefined') localStorage.setItem('mao-de-obra-current-page', page);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mao-de-obra-current-page', page);
+      window.history.pushState({ page }, '', window.location.href);
+    }
+  };
+
+  // Navegação "nativa": botão Voltar do Android
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const page = e.state?.page;
+      if (page === 'dashboard' || page === 'partners') setCurrentPageState(page);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const GUEST_USER: User = {
+    id: '',
+    email: '',
+    name: 'Visitante',
+    role: 'client',
+    points: 0,
+    allowed_roles: ['client'],
+    city: undefined,
+    state: undefined,
+    latitude: undefined,
+    longitude: undefined,
   };
   
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -1031,7 +1061,22 @@ export default function App() {
       </div>
   );
 
-  if (!currentUser) return <LoginPage onLogin={setCurrentUser} />;
+  if (!currentUser && !isGuestMode) return (
+      <LoginPage
+        onLogin={setCurrentUser}
+        onGuest={() => {
+          setIsGuestMode(true);
+          window.history.replaceState({ page: 'dashboard' }, '', window.location.href);
+        }}
+      />
+  );
+
+  const effectiveUser = currentUser || GUEST_USER;
+  const isGuest = !currentUser && isGuestMode;
+
+  useEffect(() => {
+    if (currentUser || isGuestMode) window.history.replaceState({ page: currentPage }, '', window.location.href);
+  }, [currentUser, isGuestMode, currentPage]);
 
   const getRoleBadge = (role: UserRole) => {
       switch(role) {
@@ -1041,11 +1086,11 @@ export default function App() {
           default: return { label: 'Cliente', bg: 'bg-orange-100 text-brand-orange' };
       }
   };
-  const roleInfo = getRoleBadge(currentUser.role);
-  const allowedRoles = currentUser.allowed_roles || [];
+  const roleInfo = getRoleBadge(effectiveUser.role);
+  const allowedRoles = effectiveUser.allowed_roles || [];
   const hasClient = allowedRoles.includes('client');
   const hasWorker = allowedRoles.includes('worker');
-  const canSwitchRole = hasClient && hasWorker && currentUser.role !== 'admin' && currentUser.role !== 'partner';
+  const canSwitchRole = !isGuest && hasClient && hasWorker && effectiveUser.role !== 'admin' && effectiveUser.role !== 'partner';
   const canAddWorker = hasClient && !hasWorker;
   const canAddClient = hasWorker && !hasClient;
 
@@ -1074,10 +1119,10 @@ export default function App() {
           <div className="relative bg-white w-72 h-full shadow-2xl animate-fade-in flex flex-col">
               <div className="p-6 border-b border-slate-100 bg-orange-50/50">
                    <div className="flex items-center gap-3 mb-2">
-                       <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" alt="" />
+                       <img src={effectiveUser.avatar} className="w-14 h-14 rounded-full border-2 border-white shadow-md bg-white object-cover" alt="" />
                        <div className="min-w-0">
-                           <p className="font-bold text-slate-800 text-lg truncate">{currentUser.name}</p>
-                           <p className="text-xs text-slate-500 truncate">{currentUser.city || 'Local não definido'}</p>
+                           <p className="font-bold text-slate-800 text-lg truncate">{effectiveUser.name}</p>
+                           <p className="text-xs text-slate-500 truncate">{effectiveUser.city || 'Local não definido'}</p>
                        </div>
                    </div>
                    <button onClick={() => { setShowEditProfile(true); setIsDrawerOpen(false); }} className="text-xs font-bold text-brand-orange hover:text-orange-700 flex items-center gap-1">
@@ -1089,10 +1134,10 @@ export default function App() {
                       <div className="bg-slate-50 rounded-xl p-3 mb-2 border border-slate-100">
                           <p className="text-xs font-bold text-slate-500 uppercase mb-2">Usar conta como</p>
                           <div className="flex gap-2">
-                              {currentUser.role === 'worker' && (
+                              {effectiveUser.role === 'worker' && (
                                   <button onClick={() => handleSwitchRole('client')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-orange text-white">Cliente</button>
                               )}
-                              {currentUser.role === 'client' && (
+                              {effectiveUser.role === 'client' && (
                                   <button onClick={() => handleSwitchRole('worker')} className="flex-1 py-2 rounded-lg text-xs font-bold bg-brand-blue text-white">Profissional</button>
                               )}
                           </div>
@@ -1112,7 +1157,7 @@ export default function App() {
                   <button onClick={() => { setCurrentPage('dashboard'); setIsDrawerOpen(false); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'dashboard' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
                       <Home size={20}/> Início
                   </button>
-                  {currentUser.role !== 'partner' && (
+                  {effectiveUser.role !== 'partner' && (
                       <button onClick={() => { setCurrentPage('partners'); setIsDrawerOpen(false); }} className={`w-full text-left px-4 py-3 rounded-xl font-bold flex items-center gap-3 transition-colors ${currentPage === 'partners' ? 'bg-orange-50 text-brand-orange' : 'text-slate-600 hover:bg-slate-50'}`}>
                           <Store size={20}/> Lojas Parceiras
                       </button>
@@ -1135,65 +1180,76 @@ export default function App() {
       <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
           
-          {/* LEFT SIDE: Profile Drawer Button */}
+          {/* LEFT SIDE: Profile Drawer Button (ou Entrar se visitante) */}
           <div className="flex items-center gap-3">
+              {isGuest ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-600 text-sm">Visitante</span>
+                  <button onClick={() => { setIsGuestMode(false); setCurrentUser(null); }} className="text-xs font-bold text-brand-orange bg-orange-50 px-3 py-1.5 rounded-full">Fazer login</button>
+                </div>
+              ) : (
               <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-3 group">
                   <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 group-hover:border-brand-orange transition-colors">
-                     <img src={currentUser.avatar} className="w-full h-full object-cover"/>
+                     <img src={effectiveUser.avatar} className="w-full h-full object-cover"/>
                   </div>
                   <div className="flex flex-col text-left">
                       <span className="font-black text-slate-800 text-sm leading-tight truncate max-w-[120px] sm:max-w-none">
-                          {currentUser.name.split(' ')[0]}
+                          {effectiveUser.name.split(' ')[0]}
                       </span>
                       <div className="flex items-center gap-1">
                           <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${roleInfo.bg}`}>{roleInfo.label}</span>
                       </div>
                   </div>
               </button>
+              )}
           </div>
 
-          {/* RIGHT SIDE: Notifications, Points, Mascot (Face) */}
+          {/* RIGHT SIDE: Notifications, Points, Mascot (Face) — oculto para visitante */}
           <div className="flex items-center gap-2 sm:gap-4">
-              <NotificationBell userId={currentUser.id} />
-              
-              {currentUser.role !== 'admin' && currentUser.role !== 'partner' && (
+              {!isGuest && <NotificationBell userId={effectiveUser.id} />}
+              {!isGuest && effectiveUser.role !== 'admin' && effectiveUser.role !== 'partner' && (
                   <button onClick={() => setShowPointsModal(true)} className="bg-yellow-50 hover:bg-yellow-100 px-2 sm:px-3 py-1.5 rounded-2xl flex items-center gap-1.5 border border-yellow-200 transition-colors">
                       <Coins size={16} className="text-yellow-500 fill-yellow-500" />
-                      <span className="text-slate-700 font-black text-xs">{currentUser.points}</span>
+                      <span className="text-slate-700 font-black text-xs">{effectiveUser.points}</span>
                   </button>
               )}
-
-              {/* MASCOTE DO ROSTO NA DIREITA */}
+              {!isGuest && (
               <button onClick={() => setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
                   <Mascot className="w-10 h-10 object-contain rounded-full border-2 border-white shadow-sm" variant="face" />
               </button>
+              )}
           </div>
         </div>
       </header>
 
-      {isDrawerOpen && <DrawerMenu />}
+      {!isGuest && isDrawerOpen && <DrawerMenu />}
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
-        {currentUser.role === 'partner' ? <PartnerDashboard user={currentUser} /> :
-         currentPage === 'partners' ? <PartnersPage /> : (
+        {isGuest ? (
+          <ClientDashboard user={effectiveUser} onNavigateToPartners={() => setCurrentPage('partners')} isGuest={true} />
+        ) : effectiveUser.role === 'partner' ? (
+          <PartnerDashboard user={effectiveUser} />
+        ) : currentPage === 'partners' ? (
+          <PartnersPage />
+        ) : (
            <>
-               {currentUser.role === 'admin' && <AdminDashboard />}
-               {currentUser.role === 'client' && <ClientDashboard user={currentUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
-               {currentUser.role === 'worker' && <WorkerDashboard user={currentUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
+               {effectiveUser.role === 'admin' && <AdminDashboard />}
+               {effectiveUser.role === 'client' && <ClientDashboard user={effectiveUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
+               {effectiveUser.role === 'worker' && <WorkerDashboard user={effectiveUser} onNavigateToPartners={() => setCurrentPage('partners')} />}
            </>
          )}
       </main>
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
-      {showPointsModal && <PointsModal user={currentUser} onClose={() => setShowPointsModal(false)} />}
+      {showPointsModal && currentUser && <PointsModal user={currentUser} onClose={() => setShowPointsModal(false)} />}
       
-      {showEditProfile && (
+      {showEditProfile && currentUser && (
           <EditProfileModal user={currentUser} onClose={() => setShowEditProfile(false)} onUpdate={() => fetchProfileAndSetUser(currentUser.id)} />
       )}
-      {showCompleteProfile && (
+      {showCompleteProfile && currentUser && (
           <CompleteProfileModal user={currentUser} onUpdate={() => fetchProfileAndSetUser(currentUser.id)} />
       )}
-      {showWorkerSpecialty && (
+      {showWorkerSpecialty && currentUser && (
           <WorkerSpecialtyModal user={currentUser} onUpdate={() => fetchProfileAndSetUser(currentUser.id)} />
       )}
       

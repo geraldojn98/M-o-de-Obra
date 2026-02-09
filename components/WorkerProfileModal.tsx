@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import * as Icons from 'lucide-react';
 import { StarRatingDisplay } from './StarRatingDisplay';
 import { Button } from './Button';
 import { LevelBadge } from './LevelBadge';
+import { supabase } from '../services/supabase';
 
 export type WorkerLevel = 'bronze' | 'silver' | 'gold' | 'diamond';
 
@@ -40,6 +41,12 @@ interface WorkerProfileModalProps {
   loading?: boolean;
 }
 
+interface PortfolioItem {
+  id: string;
+  image_url: string;
+  description?: string | null;
+}
+
 export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
   worker,
   reviews,
@@ -50,6 +57,18 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
   const level = (worker.level || 'bronze') as WorkerLevel;
   const style = LEVEL_STYLES[level] || LEVEL_STYLES.bronze;
   const avgRating = worker.rating ?? 0;
+  const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
+  const [expandedImageUrl, setExpandedImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!worker.id) return;
+    supabase
+      .from('worker_portfolio')
+      .select('id, image_url, description')
+      .eq('worker_id', worker.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setPortfolioItems(data || []));
+  }, [worker.id]);
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
@@ -117,6 +136,32 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
           </div>
         )}
 
+        {/* Galeria do portfólio */}
+        {portfolioItems.length > 0 && (
+          <div className="px-6 py-3 border-b border-slate-100">
+            <h3 className="font-bold text-slate-700 text-sm mb-3 flex items-center gap-2">
+              <Icons.Image size={16} />
+              Galeria
+            </h3>
+            <div className="grid grid-cols-3 gap-2">
+              {portfolioItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setExpandedImageUrl(item.image_url)}
+                  className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100 focus:ring-2 focus:ring-brand-orange focus:outline-none"
+                >
+                  <img
+                    src={item.image_url}
+                    alt={item.description || 'Trabalho'}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Lista de comentários */}
         <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4">
           <h3 className="font-bold text-slate-700 text-sm mb-3 flex items-center gap-2">
@@ -158,6 +203,33 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
           </Button>
         </div>
       </div>
+
+      {/* Overlay: foto expandida */}
+      {expandedImageUrl && (
+        <div
+          className="fixed inset-0 z-[110] bg-black/90 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setExpandedImageUrl(null)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Escape' && setExpandedImageUrl(null)}
+          aria-label="Fechar"
+        >
+          <button
+            type="button"
+            onClick={() => setExpandedImageUrl(null)}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/20 text-white hover:bg-white/30"
+            aria-label="Fechar"
+          >
+            <Icons.X size={24} />
+          </button>
+          <img
+            src={expandedImageUrl}
+            alt="Ampliada"
+            className="max-w-full max-h-[90vh] w-auto h-auto object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };

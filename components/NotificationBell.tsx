@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, X } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { Notification as AppNotification } from '../types';
+import { EmptyState } from './EmptyState';
 
 interface NotificationBellProps {
     userId: string;
@@ -171,7 +172,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ userId, onAc
                 </div>
                 <div className="max-h-[60vh] sm:max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
-                        <div className="p-6 text-center text-slate-400 text-xs">Nenhuma notificação recente.</div>
+                        <EmptyState icon={Bell} title="Nenhuma notificação recente" description="Suas notificações aparecerão aqui." className="py-6" />
                     ) : (
                         notifications.map(n => (
                             <div 

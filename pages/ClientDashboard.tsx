@@ -7,11 +7,23 @@ import { ChatWindow } from '../components/ChatWindow';
 import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import { WorkerProfileModal } from '../components/WorkerProfileModal';
 import { LevelBadge } from '../components/LevelBadge';
+import { EmptyState } from '../components/EmptyState';
 import * as NotificationService from '../services/notifications';
+
+/** Distância em km entre dois pontos (Fórmula de Haversine). */
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
 
 interface ClientDashboardProps {
   user: User;
   onNavigateToPartners: () => void;
+  isGuest?: boolean;
 }
 
 const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => (
@@ -59,7 +71,7 @@ const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void
     );
 };
 
-export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNavigateToPartners }) => {
+export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNavigateToPartners, isGuest }) => {
   const [activeTab, setActiveTab] = useState<'home' | 'jobs'>('home');
   const [viewMode, setViewMode] = useState<'selection' | 'post_job' | 'find_pro'>('selection');
   
@@ -80,6 +92,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
 
   const [workers, setWorkers] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [searchRadiusKm, setSearchRadiusKm] = useState<number | null>(10); // 5, 10, 50, null = cidade toda
+  const [showLoginRequiredModal, setShowLoginRequiredModal] = useState(false);
 
   const [activeChatJobId, setActiveChatJobId] = useState<string | null>(null);
   const [chatPartnerName, setChatPartnerName] = useState('');
@@ -112,12 +126,13 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
 
   useEffect(() => {
       const handleOpenChat = (e: CustomEvent) => {
+          if (isGuest) { setShowLoginRequiredModal(true); return; }
           setActiveChatJobId(e.detail.jobId);
           setChatPartnerName(e.detail.partnerName);
       };
       window.addEventListener('openChat', handleOpenChat as EventListener);
       return () => window.removeEventListener('openChat', handleOpenChat as EventListener);
-  }, []);
+  }, [isGuest]);
 
   useEffect(() => {
       if (toast) {
@@ -169,7 +184,10 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
         })));
     }
 
-    // Jobs
+    // Jobs (apenas se logado)
+    if (!user.id) {
+      setJobs([]);
+    } else {
     const { data: jobData } = await supabase
       .from('jobs')
       .select('*, worker:worker_id(full_name)')
@@ -194,6 +212,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
         isAudited: j.is_audited,
         auditData: j.audit_data
       })));
+    } else {
+      setJobs([]);
+    }
     }
     setLoading(false);
   };
@@ -349,8 +370,14 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
     const { data } = await supabase.from('jobs').select('id, rating, review_comment, title, created_at').eq('worker_id', worker.id).eq('status', 'completed').not('rating', 'is', null).order('created_at', { ascending: false }).limit(20);
     setWorkerReviews(data || []);
   };
-  const openChat = (jobId: string, partnerName: string) => { setActiveChatJobId(jobId); setChatPartnerName(partnerName); };
-  const openHireModal = (worker: any) => { setSelectedItem(worker); setModalType('hire'); setHireTitle(''); setHireDescription(''); setHireEstimatedHours(1); };
+  const openChat = (jobId: string, partnerName: string) => {
+    if (isGuest) { setShowLoginRequiredModal(true); return; }
+    setActiveChatJobId(jobId); setChatPartnerName(partnerName);
+  };
+  const openHireModal = (worker: any) => {
+    if (isGuest) { setShowLoginRequiredModal(true); return; }
+    setSelectedItem(worker); setModalType('hire'); setHireTitle(''); setHireDescription(''); setHireEstimatedHours(1);
+  };
   const openCancelModal = (job: any) => { setSelectedItem(job); setModalType('cancel'); setCancelReason(''); };
   const confirmCancelJob = async () => {
     if (!selectedItem || !cancelReason.trim()) return showToast("Informe o motivo.", 'error');
@@ -390,6 +417,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
   
   const activeJobs = jobs.filter(j => ['pending', 'in_progress', 'waiting_verification'].includes(j.status));
 
+  const filteredWorkers = React.useMemo(() => {
+    if (!searchRadiusKm || user.latitude == null || user.longitude == null) return workers;
+    return workers.filter((w: any) => {
+      const wLat = w.latitude; const wLon = w.longitude;
+      if (wLat == null || wLon == null) return true;
+      return haversineKm(user.latitude!, user.longitude!, wLat, wLon) <= searchRadiusKm;
+    });
+  }, [workers, searchRadiusKm, user.latitude, user.longitude]);
+
   return (
     <div className="space-y-6 pb-20 sm:pb-0 relative">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -419,7 +455,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                             <div className="flex items-center gap-2 mb-2 text-white/80 text-xs uppercase font-bold"><Icons.MapPin size={14}/> {user.city}</div>
                             <h2 className="text-2xl font-bold leading-tight">O que vamos resolver hoje?</h2>
                             <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                                <button onClick={() => setViewMode('post_job')} className="flex-1 bg-white text-brand-orange py-5 px-6 rounded-xl font-bold hover:bg-orange-50 transition shadow-md flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Pedido Aberto</span></button>
+                                <button onClick={() => { if (isGuest) setShowLoginRequiredModal(true); else setViewMode('post_job'); }} className="flex-1 bg-white text-brand-orange py-5 px-6 rounded-xl font-bold hover:bg-orange-50 transition shadow-md flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Pedido Aberto</span></button>
                                 <button onClick={() => setViewMode('find_pro')} className="flex-1 bg-brand-blue text-white py-5 px-6 rounded-xl font-bold hover:bg-blue-700 transition shadow-md border border-white/20 flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Escolher Profissional</span></button>
                             </div>
                         </div>
@@ -518,28 +554,54 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                             ))}
                         </div>
                     ) : (
-                        workers.map(w => {
-                          const level = w.level || 'bronze';
-                          return (
-                            <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
-                              <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full relative">
-                                <img src={w.avatar_url} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
-                                <div className="absolute -bottom-0.5 -right-0.5">
-                                  <LevelBadge level={level} size="sm" />
-                                </div>
+                        <>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-slate-500 uppercase">Raio de busca:</span>
+                            {[
+                              { value: 5, label: '5 km' },
+                              { value: 10, label: '10 km' },
+                              { value: 50, label: '50 km' },
+                              { value: null, label: 'Cidade toda' },
+                            ].map(({ value, label }) => (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => setSearchRadiusKm(value)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${searchRadiusKm === value ? 'bg-brand-orange text-white border-brand-orange' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                              >
+                                {label}
                               </button>
-                              <button type="button" onClick={() => openProfileModal(w)} className="flex-1 min-w-0 text-left focus:outline-none focus:ring-0">
-                                <h4 className="font-bold truncate hover:text-brand-orange transition-colors">{w.full_name}</h4>
-                                <p className="text-xs text-slate-500 truncate">{w.specialty}</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <StarRatingDisplay rating={w.rating ?? 0} size={14} />
-                                  <span className="text-xs font-bold text-slate-600">{(w.rating ?? 0).toFixed(1)}</span>
+                            ))}
+                          </div>
+                          {loading ? (
+                            <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
+                          ) : filteredWorkers.length === 0 ? (
+                            <EmptyState icon={Icons.UserX} title="Nenhum profissional encontrado" description="Tente outro raio de busca ou outra categoria." />
+                          ) : (
+                            filteredWorkers.map((w: any) => {
+                              const level = w.level || 'bronze';
+                              return (
+                                <div key={w.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+                                  <button type="button" onClick={() => openProfileModal(w)} className="shrink-0 focus:outline-none focus:ring-2 focus:ring-brand-orange rounded-full relative">
+                                    <img src={w.avatar_url} alt="" className="w-12 h-12 rounded-full bg-slate-200 object-cover" />
+                                    <div className="absolute -bottom-0.5 -right-0.5">
+                                      <LevelBadge level={level} size="sm" />
+                                    </div>
+                                  </button>
+                                  <button type="button" onClick={() => openProfileModal(w)} className="flex-1 min-w-0 text-left focus:outline-none focus:ring-0">
+                                    <h4 className="font-bold truncate hover:text-brand-orange transition-colors">{w.full_name}</h4>
+                                    <p className="text-xs text-slate-500 truncate">{w.specialty}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <StarRatingDisplay rating={w.rating ?? 0} size={14} />
+                                      <span className="text-xs font-bold text-slate-600">{(w.rating ?? 0).toFixed(1)}</span>
+                                    </div>
+                                  </button>
+                                  <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>
                                 </div>
-                              </button>
-                              <Button size="sm" onClick={() => openHireModal(w)}>Contratar</Button>
-                            </div>
-                          );
-                        })
+                              );
+                            })
+                          )}
+                        </>
                     )}
                 </div>
             )}
@@ -550,7 +612,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
         <div className="space-y-8 animate-fade-in">
            <div>
                <h3 className="font-bold text-lg text-brand-blue mb-4 flex items-center gap-2"><Icons.Briefcase size={20}/> Em Andamento</h3>
-               {activeJobs.map(job => (
+               {activeJobs.length === 0 ? (
+                 <EmptyState icon={Icons.Briefcase} title="Nenhum pedido em andamento" description="Seus pedidos aparecerão aqui." />
+               ) : activeJobs.map(job => (
                    <div key={job.id} className="bg-white p-4 rounded-xl shadow-sm border border-brand-blue/30 mb-4">
                        <div className="flex justify-between items-start">
                             <div><h4 className="font-bold text-lg">{job.title}</h4><p className="text-xs text-slate-400">{job.estimatedHours}h estimadas</p></div>
@@ -572,6 +636,17 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
                    </div>
                ))}
            </div>
+        </div>
+      )}
+
+      {showLoginRequiredModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl text-center">
+            <Icons.LogIn size={40} className="mx-auto text-brand-orange mb-3" />
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Faça login para continuar</h3>
+            <p className="text-sm text-slate-600 mb-4">Entre na sua conta para contratar ou conversar com profissionais.</p>
+            <Button fullWidth onClick={() => setShowLoginRequiredModal(false)}>Entendi</Button>
+          </div>
         </div>
       )}
 
@@ -652,7 +727,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, onNaviga
               </div>
           </div>
       )}
-      {activeChatJobId && <ChatWindow jobId={activeChatJobId} currentUser={user} otherUserName={chatPartnerName} onClose={() => setActiveChatJobId(null)} />}
+      {activeChatJobId && !isGuest && <ChatWindow jobId={activeChatJobId} currentUser={user} otherUserName={chatPartnerName} onClose={() => setActiveChatJobId(null)} />}
       {profileModalWorker && (
         <WorkerProfileModal
           worker={profileModalWorker}
