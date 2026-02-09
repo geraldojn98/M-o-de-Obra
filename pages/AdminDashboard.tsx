@@ -337,6 +337,11 @@ export const AdminDashboard: React.FC = () => {
   // Lista Vermelha: jobs auditados não resolvidos
   const [redlistJobs, setRedlistJobs] = useState<any[]>([]);
   const [appeals, setAppeals] = useState<any[]>([]);
+  // Recorrência: quantas vezes cada usuário entrou na lista vermelha / fez tréplica
+  const [redlistRecurrence, setRedlistRecurrence] = useState<Record<string, number>>({});
+  const [appealsRecurrence, setAppealsRecurrence] = useState<Record<string, number>>({});
+  // Modal de aprovar recurso: escolher nível (bronze ou anterior)
+  const [appealApproveModal, setAppealApproveModal] = useState<{ appeal: any; levelBeforeBan: string | null } | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -366,9 +371,25 @@ export const AdminDashboard: React.FC = () => {
 
     // Tréplicas (recursos de punição)
     const { data: appData } = await supabase.from('punishment_appeals')
-      .select('*, user:user_id(full_name), job:job_id(title, client_id, worker_id)')
+      .select('*, user:user_id(full_name, level_before_ban), job:job_id(title, client_id, worker_id)')
       .order('created_at', { ascending: false });
     if (appData) setAppeals(appData);
+
+    // Recorrência lista vermelha: contar quantas vezes cada usuário apareceu em jobs auditados
+    const { data: auditedJobs } = await supabase.from('jobs').select('client_id, worker_id').eq('is_audited', true);
+    const redCount: Record<string, number> = {};
+    (auditedJobs || []).forEach((j: any) => {
+      if (j.client_id) { redCount[j.client_id] = (redCount[j.client_id] || 0) + 1; }
+      if (j.worker_id) { redCount[j.worker_id] = (redCount[j.worker_id] || 0) + 1; }
+    });
+    setRedlistRecurrence(redCount);
+
+    // Recorrência tréplicas: quantas vezes cada usuário abriu recurso
+    const appealCount: Record<string, number> = {};
+    (appData || []).forEach((a: any) => {
+      if (a.user_id) { appealCount[a.user_id] = (appealCount[a.user_id] || 0) + 1; }
+    });
+    setAppealsRecurrence(appealCount);
 
     if(u) setUsers(u);
     if(j) setJobs(j);
@@ -418,20 +439,34 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  const saveLevelBeforeBanAndPunish = async (profileId: string, punishmentUntil: string | null, isWorker: boolean) => {
+    if (!isWorker) {
+      await supabase.from('profiles').update({ active: false, punishment_until: punishmentUntil }).eq('id', profileId);
+      return;
+    }
+    const { data: prof } = await supabase.from('profiles').select('level').eq('id', profileId).single();
+    const levelBefore = (prof?.level && prof.level !== 'bronze') ? prof.level : null;
+    await supabase.from('profiles').update({
+      active: false,
+      punishment_until: punishmentUntil,
+      level: 'bronze',
+      level_admin_override: true,
+      level_before_ban: levelBefore,
+    }).eq('id', profileId);
+  };
+
   const handlePunish = async (job: any) => {
-    if (!confirm('Punir/Banir por 7 dias? Cliente e profissional não poderão criar/aceitar serviços e os pontos deste serviço serão zerados.')) return;
+    if (!confirm('Punir/Banir por 7 dias? Cliente e profissional não poderão criar/aceitar serviços, os pontos deste serviço serão zerados e o nível do profissional será resetado para Bronze.')) return;
     setLoading(true);
     try {
       const until = new Date();
       until.setDate(until.getDate() + 7);
-      await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.client_id);
+      await saveLevelBeforeBanAndPunish(job.client_id, until.toISOString(), false);
       await NotificationService.notifyUserBanned(job.client_id, '7days', until.toISOString());
-      
       if (job.worker_id) {
-        await supabase.from('profiles').update({ active: false, punishment_until: until.toISOString() }).eq('id', job.worker_id);
+        await saveLevelBeforeBanAndPunish(job.worker_id, until.toISOString(), true);
         await NotificationService.notifyUserBanned(job.worker_id, '7days', until.toISOString());
       }
-      
       await supabase.from('jobs').update({ admin_verdict: 'punished', points_awarded: 0 }).eq('id', job.id);
       fetchData();
     } catch (e: any) {
@@ -441,11 +476,46 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleAppealApprove = async (appeal: any) => {
-    if (!confirm('Aprovar recurso? O usuário voltará a poder usar o app.')) return;
+  const handlePunishIndefinite = async (job: any) => {
+    if (!confirm('Punir/Banir por tempo indeterminado? Cliente e profissional não poderão usar o app até você remover o banimento. Pontos zerados e nível do profissional resetado para Bronze.')) return;
     setLoading(true);
     try {
-      await supabase.from('profiles').update({ active: true, punishment_until: null }).eq('id', appeal.user_id);
+      await saveLevelBeforeBanAndPunish(job.client_id, null, false);
+      await NotificationService.notifyUserBanned(job.client_id, 'indefinite');
+      if (job.worker_id) {
+        await saveLevelBeforeBanAndPunish(job.worker_id, null, true);
+        await NotificationService.notifyUserBanned(job.worker_id, 'indefinite');
+      }
+      await supabase.from('jobs').update({ admin_verdict: 'punished', points_awarded: 0 }).eq('id', job.id);
+      fetchData();
+    } catch (e: any) {
+      alert('Erro: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openAppealApproveModal = (appeal: any) => {
+    const levelBeforeBan = appeal.user?.level_before_ban || null;
+    setAppealApproveModal({ appeal, levelBeforeBan });
+  };
+
+  const handleAppealApprove = async (restoreLevel: 'bronze' | 'previous') => {
+    const modal = appealApproveModal;
+    if (!modal) return;
+    const { appeal, levelBeforeBan } = modal;
+    setAppealApproveModal(null);
+    setLoading(true);
+    try {
+      const updates: any = { active: true, punishment_until: null };
+      if (restoreLevel === 'previous' && levelBeforeBan) {
+        updates.level = levelBeforeBan;
+        updates.level_admin_override = false;
+        updates.level_before_ban = null;
+      } else {
+        updates.level_before_ban = null;
+      }
+      await supabase.from('profiles').update(updates).eq('id', appeal.user_id);
       await supabase.from('punishment_appeals').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', appeal.id);
       await NotificationService.notifyAppealApproved(appeal.user_id);
       fetchData();
@@ -456,12 +526,20 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleAppealReject = async (appeal: any) => {
-    if (!confirm('Rejeitar recurso? O usuário permanecerá banido até o fim do período.')) return;
+  const handleAppealReject = async (appeal: any, makeIndefinite?: boolean) => {
+    const msg = makeIndefinite
+      ? 'Rejeitar recurso e converter banimento para tempo indeterminado?'
+      : 'Rejeitar recurso? O usuário permanecerá banido até o fim do período.';
+    if (!confirm(msg)) return;
     setLoading(true);
     try {
       await supabase.from('punishment_appeals').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', appeal.id);
-      await NotificationService.notifyAppealRejected(appeal.user_id);
+      if (makeIndefinite) {
+        await supabase.from('profiles').update({ punishment_until: null }).eq('id', appeal.user_id);
+        await NotificationService.notifyUserBanned(appeal.user_id, 'indefinite');
+      } else {
+        await NotificationService.notifyAppealRejected(appeal.user_id);
+      }
       fetchData();
     } catch (e: any) {
       alert('Erro: ' + e.message);
@@ -962,8 +1040,20 @@ export const AdminDashboard: React.FC = () => {
                                       </div>
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl">
-                                      <div><span className="font-bold uppercase text-[10px] text-slate-400">Cliente</span><p className="font-bold">{job.client?.full_name || '—'}</p></div>
-                                      <div><span className="font-bold uppercase text-[10px] text-slate-400">Profissional</span><p className="font-bold">{job.worker?.full_name || '—'}</p></div>
+                                      <div>
+                                          <span className="font-bold uppercase text-[10px] text-slate-400">Cliente</span>
+                                          <p className="font-bold">{job.client?.full_name || '—'}</p>
+                                          {(redlistRecurrence[job.client_id] || 0) > 1 && (
+                                            <span className="text-amber-600 font-bold" title="Recorrência na lista vermelha">{redlistRecurrence[job.client_id]}ª vez na lista</span>
+                                          )}
+                                      </div>
+                                      <div>
+                                          <span className="font-bold uppercase text-[10px] text-slate-400">Profissional</span>
+                                          <p className="font-bold">{job.worker?.full_name || '—'}</p>
+                                          {job.worker_id && (redlistRecurrence[job.worker_id] || 0) > 1 && (
+                                            <span className="text-amber-600 font-bold" title="Recorrência na lista vermelha">{redlistRecurrence[job.worker_id]}ª vez na lista</span>
+                                          )}
+                                      </div>
                                   </div>
                                   <div className="grid grid-cols-2 gap-4 mb-4">
                                       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
@@ -979,7 +1069,8 @@ export const AdminDashboard: React.FC = () => {
                                   </div>
                                   <div className="flex flex-wrap gap-2">
                                       <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white rounded-xl" onClick={() => handleAbsolve(job)} disabled={loading}><CheckCircle size={16} className="mr-1"/> Absolver</Button>
-                                      <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl" onClick={() => handlePunish(job)} disabled={loading}><Ban size={16} className="mr-1"/> Punir/Banir</Button>
+                                      <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl" onClick={() => handlePunish(job)} disabled={loading}><Ban size={16} className="mr-1"/> Punir 7 dias</Button>
+                                      <Button size="sm" variant="outline" className="border-red-500 text-red-700 hover:bg-red-50 rounded-xl" onClick={() => handlePunishIndefinite(job)} disabled={loading}><Ban size={16} className="mr-1"/> Punir indefinido</Button>
                                   </div>
                               </div>
                           );
@@ -1005,18 +1096,51 @@ export const AdminDashboard: React.FC = () => {
                                   <span className="font-bold text-slate-800">{a.user?.full_name || 'Usuário'}</span>
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${a.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : a.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{a.status === 'pending' ? 'Pendente' : a.status === 'approved' ? 'Aprovado' : 'Rejeitado'}</span>
                               </div>
+                              {(appealsRecurrence[a.user_id] || 0) > 1 && (
+                                  <p className="text-xs text-amber-600 font-bold mb-1">{appealsRecurrence[a.user_id]}ª tréplica deste usuário</p>
+                              )}
                               <p className="text-xs text-slate-500 mb-2">Serviço: {a.job?.title || '—'}</p>
                               <p className="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg mb-3">{a.appeal_text}</p>
                               {a.status === 'pending' && (
-                                  <div className="flex gap-2">
-                                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white rounded-xl" onClick={() => handleAppealApprove(a)} disabled={loading}><CheckCircle size={14} className="mr-1"/> Aprovar</Button>
-                                      <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl" onClick={() => handleAppealReject(a)} disabled={loading}>Rejeitar</Button>
+                                  <div className="flex flex-wrap gap-2">
+                                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white rounded-xl" onClick={() => openAppealApproveModal(a)} disabled={loading}><CheckCircle size={14} className="mr-1"/> Aprovar</Button>
+                                      <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl" onClick={() => handleAppealReject(a, false)} disabled={loading}>Rejeitar</Button>
+                                      <Button size="sm" variant="outline" className="border-red-500 text-red-700 hover:bg-red-50 rounded-xl" onClick={() => handleAppealReject(a, true)} disabled={loading}>Rejeitar e banir indefinido</Button>
                                   </div>
                               )}
                           </div>
                       ))}
                   </div>
               )}
+          </div>
+      )}
+
+      {/* Modal: Aprovar recurso e escolher nível */}
+      {appealApproveModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                  <h3 className="font-bold text-lg text-slate-800 mb-2">Aprovar recurso</h3>
+                  <p className="text-sm text-slate-600 mb-4">O usuário voltará a poder usar o app. Escolha o nível do profissional:</p>
+                  <div className="space-y-2 mb-4">
+                      <button
+                          type="button"
+                          onClick={() => handleAppealApprove('bronze')}
+                          className="w-full p-3 rounded-xl border-2 border-slate-200 hover:border-brand-orange hover:bg-orange-50 text-left font-bold text-slate-800"
+                      >
+                          Manter em Bronze
+                      </button>
+                      {appealApproveModal.levelBeforeBan && (
+                          <button
+                              type="button"
+                              onClick={() => handleAppealApprove('previous')}
+                              className="w-full p-3 rounded-xl border-2 border-slate-200 hover:border-green-500 hover:bg-green-50 text-left font-bold text-slate-800"
+                          >
+                              Restaurar para {appealApproveModal.levelBeforeBan === 'diamond' ? 'Diamante' : appealApproveModal.levelBeforeBan === 'gold' ? 'Ouro' : appealApproveModal.levelBeforeBan === 'silver' ? 'Prata' : 'Bronze'}
+                          </button>
+                      )}
+                  </div>
+                  <Button variant="outline" fullWidth onClick={() => setAppealApproveModal(null)}>Cancelar</Button>
+              </div>
           </div>
       )}
 
@@ -1308,10 +1432,15 @@ export const AdminDashboard: React.FC = () => {
                               </button>
                               <button
                                   onClick={async () => {
-                                      if (!confirm('Alterar para banimento indefinido?')) return;
+                                      if (!confirm('Alterar para banimento indefinido? O nível do profissional será resetado para Bronze.')) return;
                                       setLoading(true);
                                       try {
-                                          await supabase.from('profiles').update({ active: false, punishment_until: null }).eq('id', userDetails.id);
+                                          const updates: any = { active: false, punishment_until: null };
+                                          if (userDetails.allowed_roles?.includes('worker')) {
+                                              updates.level = 'bronze';
+                                              updates.level_admin_override = true;
+                                          }
+                                          await supabase.from('profiles').update(updates).eq('id', userDetails.id);
                                           await NotificationService.notifyUserBanned(userDetails.id, 'indefinite');
                                           alert('Banimento alterado para indefinido!');
                                           setShowBanModal(false);
@@ -1338,14 +1467,24 @@ export const AdminDashboard: React.FC = () => {
                               className="w-full p-4 bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 hover:border-brand-orange rounded-xl text-left transition-colors"
                           >
                               <div className="font-bold text-slate-800 mb-1">Banir por 7 dias</div>
-                              <div className="text-xs text-slate-600">O banimento será removido automaticamente após 7 dias</div>
+                              <div className="text-xs text-slate-600">
+                                  O banimento será removido automaticamente após 7 dias
+                                  {userDetails.allowed_roles?.includes('worker') && (
+                                    <span className="block mt-1 font-bold text-red-600">Nível será resetado para Bronze</span>
+                                  )}
+                              </div>
                           </button>
                           <button
                               onClick={() => setBanType('indefinite')}
                               className="w-full p-4 bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 hover:border-red-500 rounded-xl text-left transition-colors"
                           >
                               <div className="font-bold text-slate-800 mb-1">Banir indefinidamente</div>
-                              <div className="text-xs text-slate-600">O banimento só será removido manualmente pelo admin</div>
+                              <div className="text-xs text-slate-600">
+                                  O banimento só será removido manualmente pelo admin
+                                  {userDetails.allowed_roles?.includes('worker') && (
+                                    <span className="block mt-1 font-bold text-red-600">Nível será resetado para Bronze</span>
+                                  )}
+                              </div>
                           </button>
                       </div>
                   ) : (
@@ -1356,6 +1495,9 @@ export const AdminDashboard: React.FC = () => {
                                   {banType === '7days' 
                                     ? 'O usuário será banido por 7 dias e não poderá criar/aceitar serviços durante este período.'
                                     : 'O usuário será banido indefinidamente até que você remova o banimento manualmente.'}
+                                  {userDetails.allowed_roles?.includes('worker') && (
+                                    <span className="block mt-2 font-bold">O nível do profissional será resetado para Bronze.</span>
+                                  )}
                               </p>
                           </div>
                           <div className="flex gap-2">
@@ -1370,10 +1512,14 @@ export const AdminDashboard: React.FC = () => {
                                             ? (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString(); })()
                                             : null;
                                           
-                                          await supabase.from('profiles').update({ 
-                                              active: false, 
-                                              punishment_until: until 
-                                          }).eq('id', userDetails.id);
+                                          const updates: any = { active: false, punishment_until: until };
+                                          if (userDetails.allowed_roles?.includes('worker')) {
+                                              const cur = (userDetails.level || 'bronze');
+                                              updates.level = 'bronze';
+                                              updates.level_admin_override = true;
+                                              updates.level_before_ban = cur !== 'bronze' ? cur : null;
+                                          }
+                                          await supabase.from('profiles').update(updates).eq('id', userDetails.id);
                                           
                                           // Notificar o usuário sobre o banimento
                                           await NotificationService.notifyUserBanned(userDetails.id, banType, until || undefined);
