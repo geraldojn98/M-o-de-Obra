@@ -178,6 +178,122 @@ export const AdminDashboard: React.FC = () => {
   const [userDetails, setUserDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
+  // Notificações por aba
+  const [notifications, setNotifications] = useState<Record<string, number>>({
+    users: 0,
+    jobs: 0,
+    redlist: 0,
+    replies: 0,
+    partners: 0,
+    suggestions: 0,
+  });
+
+  // Função para obter última contagem salva
+  const getLastCount = (tab: string): number => {
+    const saved = localStorage.getItem(`admin_last_count_${tab}`);
+    return saved ? parseInt(saved, 10) : 0;
+  };
+
+  // Função para salvar contagem atual
+  const saveLastCount = (tab: string, count: number) => {
+    localStorage.setItem(`admin_last_count_${tab}`, count.toString());
+  };
+
+  // Função para calcular notificações
+  const calculateNotifications = () => {
+    const newNotifications: Record<string, number> = {
+      users: 0,
+      jobs: 0,
+      redlist: 0,
+      replies: 0,
+      partners: 0,
+      suggestions: 0,
+    };
+
+    // Verificar se já foi inicializado (se não, salvar contagens atuais como baseline)
+    const isInitialized = localStorage.getItem('admin_notifications_initialized') === 'true';
+
+    if (!isInitialized) {
+      // Primeira vez: salvar contagens atuais como baseline
+      saveLastCount('users', users.length);
+      saveLastCount('jobs', jobs.length);
+      saveLastCount('redlist', redlistJobs.length);
+      const pendingReplies = appeals.filter((a: any) => a.status === 'pending').length;
+      saveLastCount('replies', pendingReplies);
+      saveLastCount('partners', partners.length);
+      const pendingSuggestions = suggestions.filter((s: any) => !s.reviewed).length;
+      saveLastCount('suggestions', pendingSuggestions);
+      localStorage.setItem('admin_notifications_initialized', 'true');
+      return; // Não mostrar notificações na primeira vez
+    }
+
+    const currentUsers = users.length;
+    const lastUsers = getLastCount('users');
+    if (currentUsers > lastUsers) {
+      newNotifications.users = Math.min(currentUsers - lastUsers, 99);
+    }
+
+    const currentJobs = jobs.length;
+    const lastJobs = getLastCount('jobs');
+    if (currentJobs > lastJobs) {
+      newNotifications.jobs = Math.min(currentJobs - lastJobs, 99);
+    }
+
+    const currentRedlist = redlistJobs.length;
+    const lastRedlist = getLastCount('redlist');
+    if (currentRedlist > lastRedlist) {
+      newNotifications.redlist = Math.min(currentRedlist - lastRedlist, 99);
+    }
+
+    const currentReplies = appeals.filter((a: any) => a.status === 'pending').length;
+    const lastReplies = getLastCount('replies');
+    if (currentReplies > lastReplies) {
+      newNotifications.replies = Math.min(currentReplies - lastReplies, 99);
+    }
+
+    const currentPartners = partners.length;
+    const lastPartners = getLastCount('partners');
+    if (currentPartners > lastPartners) {
+      newNotifications.partners = Math.min(currentPartners - lastPartners, 99);
+    }
+
+    const currentSuggestions = suggestions.filter((s: any) => !s.reviewed).length;
+    const lastSuggestions = getLastCount('suggestions');
+    if (currentSuggestions > lastSuggestions) {
+      newNotifications.suggestions = Math.min(currentSuggestions - lastSuggestions, 99);
+    }
+
+    setNotifications(newNotifications);
+  };
+
+  // Função para resetar notificação ao visualizar aba
+  const handleTabChange = (tab: AdminTab) => {
+    setActiveTab(tab);
+    
+    // Resetar contador quando visualizar a aba
+    if (tab === 'users') {
+      saveLastCount('users', users.length);
+      setNotifications(prev => ({ ...prev, users: 0 }));
+    } else if (tab === 'jobs') {
+      saveLastCount('jobs', jobs.length);
+      setNotifications(prev => ({ ...prev, jobs: 0 }));
+    } else if (tab === 'redlist') {
+      saveLastCount('redlist', redlistJobs.length);
+      setNotifications(prev => ({ ...prev, redlist: 0 }));
+    } else if (tab === 'replies') {
+      const pendingReplies = appeals.filter((a: any) => a.status === 'pending').length;
+      saveLastCount('replies', pendingReplies);
+      setNotifications(prev => ({ ...prev, replies: 0 }));
+    } else if (tab === 'partners') {
+      saveLastCount('partners', partners.length);
+      setNotifications(prev => ({ ...prev, partners: 0 }));
+    } else if (tab === 'suggestions') {
+      const pendingSuggestions = suggestions.filter((s: any) => !s.reviewed).length;
+      saveLastCount('suggestions', pendingSuggestions);
+      setNotifications(prev => ({ ...prev, suggestions: 0 }));
+    }
+  };
+
   // Notifications State
   const [notifTitle, setNotifTitle] = useState('');
   const [notifMsg, setNotifMsg] = useState('');
@@ -194,6 +310,12 @@ export const AdminDashboard: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (users.length > 0 || jobs.length > 0 || redlistJobs.length > 0 || appeals.length > 0 || partners.length > 0 || suggestions.length > 0) {
+      calculateNotifications();
+    }
+  }, [users.length, jobs.length, redlistJobs.length, appeals.length, partners.length, suggestions.length]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -220,7 +342,7 @@ export const AdminDashboard: React.FC = () => {
     if(u) setUsers(u);
     if(j) setJobs(j);
     if(p) setPartners(p);
-    if(s) setSuggestions(s.map((i:any) => ({ id: i.id, userId: i.user_id, userName: i.user?.full_name, suggestion: i.suggestion, createdAt: i.created_at })));
+    if(s) setSuggestions(s.map((i:any) => ({ id: i.id, userId: i.user_id, userName: i.user?.full_name, suggestion: i.suggestion, createdAt: i.created_at, reviewed: i.reviewed })));
     
     setLoading(false);
   };
@@ -457,50 +579,129 @@ export const AdminDashboard: React.FC = () => {
           <div className="relative w-full overflow-x-auto no-scrollbar pb-2">
              <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 w-max">
                   {[
-                      { id: 'overview', label: 'Início', icon: ChevronRight },
-                      { id: 'users', label: 'Usuários', icon: Users },
-                      { id: 'jobs', label: 'Serviços', icon: Briefcase },
-                      { id: 'redlist', label: 'Lista Vermelha', icon: ShieldAlert },
-                      { id: 'replies', label: 'Tréplicas', icon: FileText },
-                      { id: 'partners', label: 'Parceiros', icon: Store },
-                      { id: 'suggestions', label: 'Sugestões', icon: Lightbulb },
-                      { id: 'notifications', label: 'Avisos', icon: BellRing }
-                  ].map(tab => (
+                      { id: 'overview', label: 'Início', icon: ChevronRight, badgeKey: null },
+                      { id: 'users', label: 'Usuários', icon: Users, badgeKey: 'users' },
+                      { id: 'jobs', label: 'Serviços', icon: Briefcase, badgeKey: 'jobs' },
+                      { id: 'redlist', label: 'Lista Vermelha', icon: ShieldAlert, badgeKey: 'redlist' },
+                      { id: 'replies', label: 'Tréplicas', icon: FileText, badgeKey: 'replies' },
+                      { id: 'partners', label: 'Parceiros', icon: Store, badgeKey: 'partners' },
+                      { id: 'suggestions', label: 'Sugestões', icon: Lightbulb, badgeKey: 'suggestions' },
+                      { id: 'notifications', label: 'Avisos', icon: BellRing, badgeKey: null }
+                  ].map(tab => {
+                    const badgeCount = tab.badgeKey ? notifications[tab.badgeKey] : 0;
+                    return (
                       <button 
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id as AdminTab)} 
-                        className={`px-4 sm:px-5 py-2.5 text-sm rounded-xl font-bold transition flex items-center gap-2 whitespace-nowrap ${activeTab === tab.id ? 'bg-brand-orange text-white shadow-lg shadow-orange-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        onClick={() => handleTabChange(tab.id as AdminTab)} 
+                        className={`px-4 sm:px-5 py-2.5 text-sm rounded-xl font-bold transition flex items-center gap-2 whitespace-nowrap relative ${activeTab === tab.id ? 'bg-brand-orange text-white shadow-lg shadow-orange-200' : 'text-slate-400 hover:text-slate-600'}`}
                       >
                         {activeTab === tab.id && <tab.icon size={16} />}
                         {tab.label}
+                        {badgeCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                            {badgeCount > 99 ? '+99' : badgeCount}
+                          </span>
+                        )}
                       </button>
-                  ))}
+                    );
+                  })}
               </div>
           </div>
       </div>
 
       {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
-                  <div className="bg-orange-100 text-brand-orange p-4 rounded-2xl"><Users size={32}/></div>
-                  <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase">Usuários</p>
-                      <p className="text-3xl font-black text-slate-800">{users.length}</p>
-                  </div>
-              </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
-                  <div className="bg-blue-100 text-brand-blue p-4 rounded-2xl"><Briefcase size={32}/></div>
-                  <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase">Jobs</p>
-                      <p className="text-3xl font-black text-slate-800">{jobs.length}</p>
-                  </div>
-              </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
-                  <div className="bg-purple-100 text-purple-600 p-4 rounded-2xl"><Store size={32}/></div>
-                  <div>
-                      <p className="text-xs font-bold text-slate-400 uppercase">Parceiros</p>
-                      <p className="text-3xl font-black text-slate-800">{partners.length}</p>
-                  </div>
+          <div className="space-y-4 animate-fade-in">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <button 
+                    onClick={() => handleTabChange('users')}
+                    className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 hover:border-brand-orange hover:shadow-md transition-all cursor-pointer text-left"
+                  >
+                      <div className="bg-orange-100 text-brand-orange p-4 rounded-2xl shrink-0"><Users size={32}/></div>
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Usuários</p>
+                          <p className="text-3xl font-black text-slate-800">{users.length}</p>
+                          {notifications.users > 0 && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full mt-1">
+                                  {notifications.users > 99 ? '+99' : notifications.users}
+                              </span>
+                          )}
+                      </div>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('jobs')}
+                    className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 hover:border-brand-blue hover:shadow-md transition-all cursor-pointer text-left"
+                  >
+                      <div className="bg-blue-100 text-brand-blue p-4 rounded-2xl shrink-0"><Briefcase size={32}/></div>
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Serviços</p>
+                          <p className="text-3xl font-black text-slate-800">{jobs.length}</p>
+                          {notifications.jobs > 0 && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full mt-1">
+                                  {notifications.jobs > 99 ? '+99' : notifications.jobs}
+                              </span>
+                          )}
+                      </div>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('redlist')}
+                    className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 hover:border-red-500 hover:shadow-md transition-all cursor-pointer text-left"
+                  >
+                      <div className="bg-red-100 text-red-600 p-4 rounded-2xl shrink-0"><ShieldAlert size={32}/></div>
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Lista Vermelha</p>
+                          <p className="text-3xl font-black text-slate-800">{redlistJobs.length}</p>
+                          {notifications.redlist > 0 && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full mt-1">
+                                  {notifications.redlist > 99 ? '+99' : notifications.redlist}
+                              </span>
+                          )}
+                      </div>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('replies')}
+                    className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 hover:border-slate-500 hover:shadow-md transition-all cursor-pointer text-left"
+                  >
+                      <div className="bg-slate-100 text-slate-600 p-4 rounded-2xl shrink-0"><FileText size={32}/></div>
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Tréplicas</p>
+                          <p className="text-3xl font-black text-slate-800">{appeals.filter((a: any) => a.status === 'pending').length}</p>
+                          {notifications.replies > 0 && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full mt-1">
+                                  {notifications.replies > 99 ? '+99' : notifications.replies}
+                              </span>
+                          )}
+                      </div>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('partners')}
+                    className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 hover:border-purple-500 hover:shadow-md transition-all cursor-pointer text-left"
+                  >
+                      <div className="bg-purple-100 text-purple-600 p-4 rounded-2xl shrink-0"><Store size={32}/></div>
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Parceiros</p>
+                          <p className="text-3xl font-black text-slate-800">{partners.length}</p>
+                          {notifications.partners > 0 && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full mt-1">
+                                  {notifications.partners > 99 ? '+99' : notifications.partners}
+                              </span>
+                          )}
+                      </div>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('suggestions')}
+                    className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 hover:border-yellow-500 hover:shadow-md transition-all cursor-pointer text-left"
+                  >
+                      <div className="bg-yellow-100 text-yellow-600 p-4 rounded-2xl shrink-0"><Lightbulb size={32}/></div>
+                      <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-400 uppercase">Sugestões</p>
+                          <p className="text-3xl font-black text-slate-800">{suggestions.filter((s: any) => !s.reviewed).length}</p>
+                          {notifications.suggestions > 0 && (
+                              <span className="inline-flex items-center justify-center w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full mt-1">
+                                  {notifications.suggestions > 99 ? '+99' : notifications.suggestions}
+                              </span>
+                          )}
+                      </div>
+                  </button>
               </div>
           </div>
       )}
