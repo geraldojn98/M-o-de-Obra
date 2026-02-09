@@ -1061,6 +1061,13 @@ export default function App() {
       </div>
   );
 
+  const effectiveUser = currentUser || GUEST_USER;
+  const isGuest = !currentUser && isGuestMode;
+
+  useEffect(() => {
+    if (currentUser || isGuestMode) window.history.replaceState({ page: currentPage }, '', window.location.href);
+  }, [currentUser, isGuestMode, currentPage]);
+
   if (!currentUser && !isGuestMode) return (
       <LoginPage
         onLogin={setCurrentUser}
@@ -1070,13 +1077,6 @@ export default function App() {
         }}
       />
   );
-
-  const effectiveUser = currentUser || GUEST_USER;
-  const isGuest = !currentUser && isGuestMode;
-
-  useEffect(() => {
-    if (currentUser || isGuestMode) window.history.replaceState({ page: currentPage }, '', window.location.href);
-  }, [currentUser, isGuestMode, currentPage]);
 
   const getRoleBadge = (role: UserRole) => {
       switch(role) {
