@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import * as Icons from 'lucide-react';
@@ -73,9 +73,12 @@ const AuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) => void
 
 export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'home' | 'jobs'>('home');
-  const [viewMode, setViewMode] = useState<'selection' | 'post_job' | 'find_pro'>('selection');
-  
+  const location = useLocation();
+  const pathname = location.pathname;
+  const activeTab: 'home' | 'jobs' = pathname.includes('/myservices') ? 'jobs' : 'home';
+  const viewMode: 'selection' | 'post_job' | 'find_pro' =
+    pathname.includes('/openservice') ? 'post_job' : pathname.includes('/workerselect') ? 'find_pro' : 'selection';
+
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [featuredCoupons, setFeaturedCoupons] = useState<Coupon[]>([]);
@@ -284,7 +287,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
         await NotificationService.notifyWorkersNewJob(insertedJob.id, jobTitle, user.name, user.city);
         setJobTitle(''); setJobDesc(''); setJobPrice(''); setEstimatedHours(1);
         setSelectedCategories([]); setOtherCategoryInput(''); setIsAllCategories(true);
-        setViewMode('selection');
+        navigate('/client');
         fetchData();
     }
     setLoading(false);
@@ -316,7 +319,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
       // Notificar o profissional sobre a proposta direta
       await NotificationService.notifyClientJobAccepted(worker.id, user.name, hireTitle.trim(), insertedJob.id);
       closeModal(); 
-      setActiveTab('jobs'); 
+      navigate('/client/myservices'); 
       fetchData(); 
     }
     setLoading(false);
@@ -457,8 +460,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
       )}
 
       <div className="flex space-x-2 overflow-x-auto pb-2 no-scrollbar">
-        <Button variant={activeTab === 'home' ? 'primary' : 'outline'} onClick={() => setActiveTab('home')} size="sm" className="whitespace-nowrap">Início</Button>
-        <Button variant={activeTab === 'jobs' ? 'primary' : 'outline'} onClick={() => setActiveTab('jobs')} size="sm" className="whitespace-nowrap">Meus Pedidos</Button>
+        <Button variant={activeTab === 'home' ? 'primary' : 'outline'} onClick={() => navigate('/client')} size="sm" className="whitespace-nowrap">Início</Button>
+        <Button variant={activeTab === 'jobs' ? 'primary' : 'outline'} onClick={() => navigate('/client/myservices')} size="sm" className="whitespace-nowrap">Meus Pedidos</Button>
       </div>
 
       {activeTab === 'home' && (
@@ -472,8 +475,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
                             <div className="flex items-center gap-2 mb-2 text-white/80 text-xs uppercase font-bold"><Icons.MapPin size={14}/> {user.city}</div>
                             <h2 className="text-2xl font-bold leading-tight">O que vamos resolver hoje?</h2>
                             <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                                <button onClick={() => { if (isGuest) setShowLoginRequiredModal(true); else setViewMode('post_job'); }} className="flex-1 bg-white text-brand-orange py-5 px-6 rounded-xl font-bold hover:bg-orange-50 transition shadow-md flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Pedido Aberto</span></button>
-                                <button onClick={() => setViewMode('find_pro')} className="flex-1 bg-brand-blue text-white py-5 px-6 rounded-xl font-bold hover:bg-blue-700 transition shadow-md border border-white/20 flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Escolher Profissional</span></button>
+                                <button onClick={() => { if (isGuest) setShowLoginRequiredModal(true); else navigate('/client/openservice'); }} className="flex-1 bg-white text-brand-orange py-5 px-6 rounded-xl font-bold hover:bg-orange-50 transition shadow-md flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Pedido Aberto</span></button>
+                                <button onClick={() => navigate('/client/workerselect')} className="flex-1 bg-brand-blue text-white py-5 px-6 rounded-xl font-bold hover:bg-blue-700 transition shadow-md border border-white/20 flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Escolher Profissional</span></button>
                             </div>
                         </div>
                     </div>
@@ -513,7 +516,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 animate-fade-in">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-lg">Criar Pedido</h3>
-                        <button onClick={() => setViewMode('selection')} className="text-sm text-slate-500 hover:text-brand-orange">Cancelar</button>
+                        <button onClick={() => navigate('/client')} className="text-sm text-slate-500 hover:text-brand-orange">Cancelar</button>
                     </div>
                     <form onSubmit={handlePostJob} className="space-y-4">
                         <input value={jobTitle} onChange={e=>setJobTitle(e.target.value)} placeholder="Título (Ex: Consertar pia)" className="w-full px-4 py-3 bg-slate-50 border rounded-lg" required />
@@ -561,7 +564,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
              {viewMode === 'find_pro' && (
                 <div className="animate-fade-in space-y-4">
                      <div className="flex items-center gap-2 mb-4">
-                        <button onClick={() => setViewMode('selection')} className="text-slate-500 hover:bg-slate-100 p-2 rounded-full"><Icons.ArrowLeft size={20}/></button>
+                        <button onClick={() => navigate('/client')} className="text-slate-500 hover:bg-slate-100 p-2 rounded-full"><Icons.ArrowLeft size={20}/></button>
                         <h3 className="font-bold text-lg">Encontrar Especialista</h3>
                     </div>
 

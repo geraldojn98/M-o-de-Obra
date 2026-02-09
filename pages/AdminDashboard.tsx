@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
 import { 
@@ -190,8 +191,14 @@ const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => vo
     );
 };
 
+const ADMIN_TAB_IDS: AdminTab[] = ['overview', 'users', 'jobs', 'partners', 'notifications', 'suggestions', 'redlist', 'replies'];
+
 export const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
+  const pathSeg = pathname.replace(/^\/admin\/?/, '') || 'overview';
+  const activeTab: AdminTab = (ADMIN_TAB_IDS.includes(pathSeg as AdminTab) ? pathSeg : 'overview') as AdminTab;
+
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
@@ -297,10 +304,10 @@ export const AdminDashboard: React.FC = () => {
     setNotifications(newNotifications);
   };
 
-  // Função para resetar notificação ao visualizar aba
+  // Função para resetar notificação ao visualizar aba e navegar
   const handleTabChange = (tab: AdminTab) => {
-    setActiveTab(tab);
-    
+    navigate(tab === 'overview' ? '/admin' : `/admin/${tab}`);
+
     // Resetar contador quando visualizar a aba
     if (tab === 'users') {
       saveLastCount('users', users.length);

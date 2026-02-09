@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { User, Coupon } from '../types';
 import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
@@ -11,11 +12,15 @@ const QRCodeDisplay: React.FC<{ value: string }> = ({ value }) => {
 };
 
 export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
+    const navigate = useNavigate();
+    const pathname = useLocation().pathname;
+    const activeTab: 'coupons' | 'pos' | 'history' =
+        pathname.includes('/pos') ? 'pos' : pathname.includes('/history') ? 'history' : 'coupons';
+
     const [partnerId, setPartnerId] = useState<string | null>(null);
     const [isPinSet, setIsPinSet] = useState(false);
     const [coupons, setCoupons] = useState<Coupon[]>([]);
     const [redemptions, setRedemptions] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState<'coupons' | 'pos' | 'history'>('coupons');
     
     // Create Coupon State
     const [newTitle, setNewTitle] = useState('');
@@ -209,19 +214,19 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
         <div className="space-y-6 w-full max-w-full">
             <div className="flex gap-2 border-b border-slate-200 pb-2 overflow-x-auto no-scrollbar">
                 <button 
-                    onClick={() => setActiveTab('coupons')}
+                    onClick={() => navigate('/partner/coupons')}
                     className={`px-4 py-2 font-bold whitespace-nowrap ${activeTab === 'coupons' ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-slate-500'}`}
                 >
                     Gerenciar Cupons
                 </button>
                 <button 
-                    onClick={() => setActiveTab('pos')}
+                    onClick={() => navigate('/partner/pos')}
                     className={`px-4 py-2 font-bold whitespace-nowrap ${activeTab === 'pos' ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-slate-500'}`}
                 >
                     Ponto de Venda (QR)
                 </button>
                 <button 
-                    onClick={() => setActiveTab('history')}
+                    onClick={() => navigate('/partner/history')}
                     className={`px-4 py-2 font-bold whitespace-nowrap ${activeTab === 'history' ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-slate-500'}`}
                 >
                     Histórico

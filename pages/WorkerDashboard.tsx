@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
 import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store, ImagePlus, Trash2 } from 'lucide-react';
@@ -67,7 +67,9 @@ const WorkerAuditModal: React.FC<{ onConfirm: (data: {q1: string, q2: string}) =
 
 export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'jobs' | 'my_jobs' | 'history' | 'portfolio'>('jobs');
+  const pathname = useLocation().pathname;
+  const activeTab: 'jobs' | 'my_jobs' | 'history' | 'portfolio' =
+    pathname.includes('/portfolio') ? 'portfolio' : pathname.includes('/history') ? 'history' : pathname.includes('/myservices') ? 'my_jobs' : 'jobs';
   const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [featuredCoupons, setFeaturedCoupons] = useState<Coupon[]>([]);
@@ -263,7 +265,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
           }
         }
         showToast('Serviço aceito!', 'success'); 
-        setActiveTab('my_jobs'); 
+        navigate('/worker/myservices'); 
         await fetchData(); 
         setLoadingAction(false);
       }
@@ -500,10 +502,10 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
 
        {/* Tabs */}
        <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
-         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('jobs')}>Novos Pedidos</button>
-         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'my_jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('my_jobs')}>Meus Serviços</button>
-         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'history' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('history')}>Histórico</button>
-         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'portfolio' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => setActiveTab('portfolio')}>Meu Portfólio</button>
+         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker')}>Novos Pedidos</button>
+         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'my_jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker/myservices')}>Meus Serviços</button>
+         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'history' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker/history')}>Histórico</button>
+         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'portfolio' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker/portfolio')}>Meu Portfólio</button>
        </div>
 
        {activeTab === 'jobs' && (
