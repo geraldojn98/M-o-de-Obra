@@ -566,11 +566,15 @@ export const AdminDashboard: React.FC = () => {
       if(!confirm("Tem certeza que deseja apagar este serviço e todas as mensagens vinculadas a ele?")) return;
       try {
           await supabase.from('messages').delete().eq('job_id', id);
-          const { error } = await supabase.from('jobs').delete().eq('id', id);
+          const { data: deleted, error } = await supabase.from('jobs').delete().eq('id', id).select('id');
           if (error) throw error;
+          if (!deleted?.length) {
+            alert("O serviço não pôde ser apagado (nenhuma linha afetada). Verifique se a política RLS permite que o admin delete jobs.");
+            return;
+          }
           setJobs(prev => prev.filter(j => j.id !== id));
       } catch (e: any) {
-          alert("Erro: " + e.message);
+          alert("Erro: " + (e?.message ?? e));
       }
   };
 
