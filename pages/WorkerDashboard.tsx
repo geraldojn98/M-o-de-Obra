@@ -139,8 +139,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
   };
 
   const fetchData = async () => {
-    // Coupons with Partner Data
-    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url, email)').eq('active', true).gt('available_quantity', 0).limit(3);
+    // Coupons: últimos 5 disponíveis
+    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url, email)').eq('active', true).gt('available_quantity', 0).order('created_at', { ascending: false }).limit(5);
     
     if(cData) {
         const emails = cData.map((c: any) => c.partner?.email).filter(Boolean);
@@ -564,12 +564,43 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
          <ChatListPage user={user} role="worker" />
        ) : (
          <>
+       {/* Cupons de parceiros */}
+       {featuredCoupons.length > 0 && (
+         <div>
+           <h3 className="font-bold text-slate-500 text-xs uppercase mb-3">Lojas Parceiras</h3>
+           <div className="space-y-2">
+             {featuredCoupons.map(coupon => (
+               <button
+                 key={coupon.id}
+                 type="button"
+                 onClick={() => navigate('/partners')}
+                 className="w-full bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
+               >
+                 <div className="bg-white border border-slate-100 w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+                   {coupon.partnerLogo ? (
+                     <img src={coupon.partnerLogo} alt="" className="w-full h-full object-contain" />
+                   ) : (
+                     <Store size={24} className="text-slate-300" />
+                   )}
+                 </div>
+                 <div className="flex-1 min-w-0">
+                   <p className="font-bold text-xs text-brand-orange truncate">{coupon.partnerName}</p>
+                   <p className="font-bold text-sm text-slate-800 truncate">{coupon.title}</p>
+                   <p className="text-xs text-slate-500 font-bold flex items-center gap-1"><Ticket size={10}/> {coupon.cost} pts</p>
+                 </div>
+               </button>
+             ))}
+           </div>
+           <Button type="button" variant="outline" fullWidth className="mt-3" onClick={() => navigate('/partners')}>
+             Mais cupons
+           </Button>
+         </div>
+       )}
+
        {/* Tabs */}
        <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
          <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker')}>Novos Pedidos</button>
          <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'my_jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker/myservices')}>Meus Serviços</button>
-         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'history' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker/history')}>Histórico</button>
-         <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'portfolio' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker/portfolio')}>Meu Portfólio</button>
        </div>
 
        {activeTab === 'jobs' && (
@@ -610,35 +641,6 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                )}
              </div>
            );})}
-
-           {/* COUPONS BANNER (Below Jobs) */}
-           {featuredCoupons.length > 0 && (
-                <div className="overflow-x-auto no-scrollbar pb-2 pt-4 border-t border-slate-100">
-                    <h3 className="font-bold text-slate-500 text-xs uppercase mb-2">Descontos em Parceiros</h3>
-                    <div className="flex gap-4 w-max">
-                        {featuredCoupons.map(coupon => (
-                            <button 
-                                key={coupon.id} 
-                                onClick={() => navigate('/partners')}
-                                className="w-72 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
-                            >
-                                <div className="bg-white border border-slate-100 w-14 h-14 rounded-lg flex items-center justify-center shrink-0 p-1">
-                                    {coupon.partnerLogo ? (
-                                        <img src={coupon.partnerLogo} className="w-full h-full object-contain" />
-                                    ) : (
-                                        <Store size={24} className="text-slate-300" />
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-bold text-xs text-brand-orange truncate">{coupon.partnerName}</p>
-                                    <p className="font-bold text-sm text-slate-800 line-clamp-1">{coupon.title}</p>
-                                    <p className="text-xs text-slate-500 font-bold flex items-center gap-1"><Ticket size={10}/> {coupon.cost} pts</p>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-           )}
          </div>
        )}
 
