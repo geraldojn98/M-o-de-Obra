@@ -84,7 +84,14 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [featuredCoupons, setFeaturedCoupons] = useState<Coupon[]>([]);
-  
+  const [recentPortfolio, setRecentPortfolio] = useState<{ id: string; image_url: string; worker_id: string; created_at: string; worker: any }[]>([]);
+  const [showAllPortfolios, setShowAllPortfolios] = useState(false);
+  const [allPortfolioItems, setAllPortfolioItems] = useState<{ id: string; image_url: string; worker_id: string; created_at: string; worker: any }[]>([]);
+  const [portfolioFilterCategory, setPortfolioFilterCategory] = useState<string | null>(null);
+  const [portfolioFilterLevel, setPortfolioFilterLevel] = useState<string | null>(null);
+  const [portfolioFilterRadiusKm, setPortfolioFilterRadiusKm] = useState<number | null>(null);
+  const [portfolioAllLoading, setPortfolioAllLoading] = useState(false);
+
   const [toast, setToast] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -135,6 +142,22 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
   }, [viewMode]);
 
   useEffect(() => {
+    if (!showAllPortfolios) return;
+    setPortfolioAllLoading(true);
+    const load = async () => {
+      const { data: rows } = await supabase.from('worker_portfolio').select('id, image_url, worker_id, created_at').order('created_at', { ascending: false });
+      if (!rows?.length) { setAllPortfolioItems([]); setPortfolioAllLoading(false); return; }
+      const workerIds = [...new Set(rows.map((p: any) => p.worker_id))];
+      const { data: profs } = await supabase.from('profiles').select('id, full_name, avatar_url, level, rating, specialty, city, latitude, longitude').in('id', workerIds);
+      const profMap: Record<string, any> = {};
+      profs?.forEach((p: any) => { profMap[p.id] = p; });
+      setAllPortfolioItems(rows.map((p: any) => ({ ...p, worker: profMap[p.worker_id] })));
+      setPortfolioAllLoading(false);
+    };
+    load();
+  }, [showAllPortfolios]);
+
+  useEffect(() => {
       const handleOpenChat = (e: CustomEvent) => {
           if (isGuest) { setShowLoginRequiredModal(true); return; }
           setActiveChatJobId(e.detail.jobId);
@@ -173,8 +196,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
         setCategories(cats);
     }
 
-    // Coupons (Active & Available) with Partner Info
-    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url, email)').eq('active', true).gt('available_quantity', 0).limit(3);
+    // Coupons: últimos 5 disponíveis
+    const { data: cData } = await supabase.from('coupons').select('*, partner:partners(name, logo_url, email)').eq('active', true).gt('available_quantity', 0).order('created_at', { ascending: false }).limit(5);
     
     if(cData) {
         // Obter avatares atualizados do profile
@@ -192,6 +215,22 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
             partnerName: c.partner?.name, 
             partnerLogo: avatarMap[c.partner?.email] || c.partner?.logo_url
         })));
+    }
+
+    // Últimas 5 fotos de portfólio (com dados do profissional)
+    const { data: portfolioRows } = await supabase
+      .from('worker_portfolio')
+      .select('id, image_url, worker_id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (portfolioRows?.length) {
+      const workerIds = [...new Set(portfolioRows.map((p: any) => p.worker_id))];
+      const { data: profs } = await supabase.from('profiles').select('id, full_name, avatar_url, level, rating, specialty, city, latitude, longitude').in('id', workerIds);
+      const profMap: Record<string, any> = {};
+      profs?.forEach((p: any) => { profMap[p.id] = p; });
+      setRecentPortfolio(portfolioRows.map((p: any) => ({ ...p, worker: profMap[p.worker_id] })));
+    } else {
+      setRecentPortfolio([]);
     }
 
     // Jobs (apenas se logado)
@@ -448,6 +487,25 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
     return list;
   }, [workers, selectedCategoryFilter, searchRadiusKm, user.latitude, user.longitude]);
 
+  const filteredPortfolioItems = React.useMemo(() => {
+    let list = allPortfolioItems.filter(p => p.worker);
+    if (portfolioFilterCategory) {
+      const cat = portfolioFilterCategory.toLowerCase();
+      list = list.filter(p => (p.worker?.specialty || '').toLowerCase().includes(cat));
+    }
+    if (portfolioFilterLevel) {
+      list = list.filter(p => (p.worker?.level || 'bronze') === portfolioFilterLevel);
+    }
+    if (portfolioFilterRadiusKm != null && user.latitude != null && user.longitude != null) {
+      list = list.filter(p => {
+        const w = p.worker;
+        if (w?.latitude == null || w?.longitude == null) return true;
+        return haversineKm(user.latitude!, user.longitude!, w.latitude, w.longitude) <= portfolioFilterRadiusKm;
+      });
+    }
+    return list;
+  }, [allPortfolioItems, portfolioFilterCategory, portfolioFilterLevel, portfolioFilterRadiusKm, user.latitude, user.longitude]);
+
   return (
     <div className="space-y-6 pb-20 sm:pb-0 relative">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -467,50 +525,151 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
 
       {!pathname.includes('/chat') && activeTab === 'home' && (
           <>
-            {viewMode === 'selection' && (
-                <div className="space-y-6 animate-fade-in">
-                    
-                    {/* Hero Section */}
-                    <div className="bg-brand-orange text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
-                        <div className="relative z-10">
-                            <div className="flex items-center gap-2 mb-2 text-white/80 text-xs uppercase font-bold"><Icons.MapPin size={14}/> {user.city}</div>
-                            <h2 className="text-2xl font-bold leading-tight">O que vamos resolver hoje?</h2>
-                            <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                                <button onClick={() => { if (isGuest) setShowLoginRequiredModal(true); else navigate('/client/openservice'); }} className="flex-1 bg-white text-brand-orange py-5 px-6 rounded-xl font-bold hover:bg-orange-50 transition shadow-md flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Pedido Aberto</span></button>
-                                <button onClick={() => navigate('/client/workerselect')} className="flex-1 bg-brand-blue text-white py-5 px-6 rounded-xl font-bold hover:bg-blue-700 transition shadow-md border border-white/20 flex flex-col items-center sm:items-start text-center sm:text-left"><span className="text-lg">Escolher Profissional</span></button>
-                            </div>
-                        </div>
+            {viewMode === 'selection' && !showAllPortfolios && (
+                <div className="space-y-8 animate-fade-in">
+                    {/* Botão principal: Encontrar profissional adequado */}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/client/workerselect')}
+                      className="w-full bg-brand-orange hover:bg-orange-600 text-white py-6 px-6 rounded-2xl shadow-lg shadow-orange-200 flex items-center justify-center gap-3 transition-all"
+                    >
+                      <Icons.Search size={28} className="shrink-0" />
+                      <span className="text-xl font-bold">Encontrar profissional adequado</span>
+                    </button>
+
+                    {/* Cupons: 5 últimos + Mais cupons */}
+                    <div>
+                      <h3 className="font-bold text-slate-500 text-xs uppercase mb-3">Lojas Parceiras</h3>
+                      {featuredCoupons.length > 0 ? (
+                        <>
+                          <div className="space-y-2">
+                            {featuredCoupons.map(coupon => (
+                              <button
+                                key={coupon.id}
+                                type="button"
+                                onClick={() => navigate('/partners')}
+                                className="w-full bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
+                              >
+                                <div className="bg-white border border-slate-100 w-12 h-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+                                  {coupon.partnerLogo ? (
+                                    <img src={coupon.partnerLogo} alt="" className="w-full h-full object-contain" />
+                                  ) : (
+                                    <Icons.Store size={24} className="text-slate-300" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-bold text-xs text-brand-orange truncate">{coupon.partnerName}</p>
+                                  <p className="font-bold text-sm text-slate-800 truncate">{coupon.title}</p>
+                                  <p className="text-xs text-slate-500 font-bold flex items-center gap-1"><Icons.Ticket size={10}/> {coupon.cost} pts</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                          <Button type="button" variant="outline" fullWidth className="mt-3" onClick={() => navigate('/partners')}>
+                            Mais cupons
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-slate-400 text-sm">Nenhum cupom disponível no momento.</p>
+                      )}
                     </div>
 
-                    {/* COUPONS BANNER (Moved below buttons) */}
-                    {featuredCoupons.length > 0 && (
-                        <div className="overflow-x-auto no-scrollbar pb-2">
-                            <h3 className="font-bold text-slate-500 text-xs uppercase mb-2">Descontos em Parceiros</h3>
-                            <div className="flex gap-4 w-max">
-                                {featuredCoupons.map(coupon => (
-                                    <button 
-                                        key={coupon.id} 
-                                        onClick={() => navigate('/partners')}
-                                        className="w-72 bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 hover:border-brand-orange transition-colors text-left"
-                                    >
-                                        <div className="bg-white border border-slate-100 w-14 h-14 rounded-lg flex items-center justify-center shrink-0 p-1">
-                                            {coupon.partnerLogo ? (
-                                                <img src={coupon.partnerLogo} className="w-full h-full object-contain" />
-                                            ) : (
-                                                <Icons.Store size={24} className="text-slate-300" />
-                                            )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-bold text-xs text-brand-orange truncate">{coupon.partnerName}</p>
-                                            <p className="font-bold text-sm text-slate-800 line-clamp-1">{coupon.title}</p>
-                                            <p className="text-xs text-slate-500 font-bold flex items-center gap-1"><Icons.Ticket size={10}/> {coupon.cost} pts</p>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                    {/* Últimas 5 fotos de portfólio */}
+                    <div>
+                      <h3 className="font-bold text-slate-500 text-xs uppercase mb-3">Portfólios recentes</h3>
+                      {recentPortfolio.length > 0 ? (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {recentPortfolio.slice(0, 5).map(item => (
+                              <div key={item.id} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+                                <button type="button" onClick={() => item.worker && openProfileModal(item.worker)} className="block w-full aspect-square relative">
+                                  <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                                  {item.worker && (
+                                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/70 to-transparent flex items-center gap-2">
+                                      <img src={item.worker.avatar_url || DEFAULT_AVATAR} alt="" className="w-7 h-7 rounded-full border-2 border-white object-cover shrink-0" />
+                                      <span className="text-white text-xs font-bold truncate">{item.worker.full_name}</span>
+                                    </div>
+                                  )}
+                                </button>
+                                {item.worker && (
+                                  <div className="p-2 flex gap-1">
+                                    <Button type="button" size="sm" variant="outline" className="flex-1 text-xs" onClick={() => openProfileModal(item.worker)}>Ver perfil</Button>
+                                    <Button type="button" size="sm" className="flex-1 text-xs" onClick={() => openHireModal(item.worker)}>Contratar</Button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <Button type="button" variant="outline" fullWidth className="mt-3" onClick={() => setShowAllPortfolios(true)}>
+                            Outros portfólios
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-slate-400 text-sm">Nenhuma foto de portfólio recente.</p>
+                      )}
+                    </div>
                 </div>
+            )}
+
+            {/* View "Outros portfólios": todos com filtros */}
+            {viewMode === 'selection' && showAllPortfolios && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="flex items-center gap-2 mb-4">
+                  <button type="button" onClick={() => setShowAllPortfolios(false)} className="p-2 rounded-full text-slate-500 hover:bg-slate-100"><Icons.ArrowLeft size={20}/></button>
+                  <h3 className="font-bold text-lg text-slate-800">Outros portfólios</h3>
+                </div>
+                {/* Filtros: categoria, distância, nível */}
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase w-full">Filtrar</span>
+                  <select value={portfolioFilterCategory ?? ''} onChange={e => setPortfolioFilterCategory(e.target.value || null)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white">
+                    <option value="">Categoria</option>
+                    {categories.filter(c => c.name !== 'Outros').map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                  <select value={portfolioFilterLevel ?? ''} onChange={e => setPortfolioFilterLevel(e.target.value || null)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white">
+                    <option value="">Nível</option>
+                    <option value="bronze">Bronze</option>
+                    <option value="silver">Prata</option>
+                    <option value="gold">Ouro</option>
+                    <option value="diamond">Diamante</option>
+                  </select>
+                  <select value={portfolioFilterRadiusKm ?? ''} onChange={e => setPortfolioFilterRadiusKm(e.target.value ? Number(e.target.value) : null)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white">
+                    <option value="">Distância</option>
+                    <option value="5">Até 5 km</option>
+                    <option value="10">Até 10 km</option>
+                    <option value="25">Até 25 km</option>
+                    <option value="50">Até 50 km</option>
+                    <option value="100">Até 100 km</option>
+                  </select>
+                </div>
+                {portfolioAllLoading ? (
+                  <div className="py-12 text-center text-slate-400 text-sm">Carregando portfólios...</div>
+                ) : filteredPortfolioItems.length === 0 ? (
+                  <EmptyState icon={Icons.Image} title="Nenhum portfólio" description="Ajuste os filtros ou tente mais tarde." />
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {filteredPortfolioItems.map(item => (
+                      <div key={item.id} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+                        <button type="button" onClick={() => item.worker && openProfileModal(item.worker)} className="block w-full aspect-square relative">
+                          <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                          {item.worker && (
+                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/70 to-transparent flex items-center gap-2">
+                              <img src={item.worker.avatar_url || DEFAULT_AVATAR} alt="" className="w-7 h-7 rounded-full border-2 border-white object-cover shrink-0" />
+                              <span className="text-white text-xs font-bold truncate">{item.worker.full_name}</span>
+                              <LevelBadge level={item.worker.level || 'bronze'} size="sm" />
+                            </div>
+                          )}
+                        </button>
+                        {item.worker && (
+                          <div className="p-2 flex gap-1">
+                            <Button type="button" size="sm" variant="outline" className="flex-1 text-xs" onClick={() => openProfileModal(item.worker)}>Perfil</Button>
+                            <Button type="button" size="sm" className="flex-1 text-xs" onClick={() => openHireModal(item.worker)}>Contratar</Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             
             {viewMode === 'post_job' && (
