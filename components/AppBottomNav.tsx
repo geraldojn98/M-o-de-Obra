@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, MessageCircle, Plus, Store, History, ImagePlus, Ticket, QrCode, Briefcase } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { UserRole } from '../types';
 
 interface AppBottomNavProps {
@@ -16,7 +17,7 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({ role, isGuest }) => 
   const isWorker = role === 'worker';
   const isPartner = role === 'partner';
 
-  const navItem = (path: string, Icon: React.ComponentType<{ size?: number; className?: string }>, label: string, isCenter = false) => {
+  const navItem = (path: string, Icon: LucideIcon, label: string, isCenter = false) => {
     const active = pathname === path || (path !== '/client' && path !== '/worker' && path !== '/partner' && pathname.startsWith(path));
     return (
       <button

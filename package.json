@@ -1,7 +1,7 @@
 {
   "name": "mao-na-roda",
   "private": true,
-  "version": "1.0.3.6",
+  "version": "1.2.3.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
