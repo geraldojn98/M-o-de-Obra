@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { User, Job, ServiceCategory, POINTS_RULES, Coupon } from '../types';
 import { Button } from '../components/Button';
-import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store, ImagePlus, Trash2 } from 'lucide-react';
+import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store, ImagePlus, Trash2, Medal, Trophy } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
 import { ChatListPage } from '../components/ChatListPage';
 import { LevelBadge } from '../components/LevelBadge';
+import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import { EmptyState } from '../components/EmptyState';
 import * as NotificationService from '../services/notifications';
 
@@ -105,6 +106,12 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
     fetchData();
     calculateTodayPoints();
   }, [user.id, activeTab]);
+
+  // Atualiza last_active_at para regra de 30 dias sem uso (evita descer de nível)
+  useEffect(() => {
+    if (!user.id) return;
+    supabase.from('profiles').update({ last_active_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
+  }, [user.id]);
 
   useEffect(() => { if (toast) setTimeout(() => setToast(null), 4000); }, [toast]);
 
@@ -470,7 +477,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
            </div>
        )}
        
-       {/* PROFILE HEADER COM NÍVEL */}
+       {/* PROFILE HEADER: foto + card nível/medalha */}
        <div className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
             <div className="w-14 h-14 rounded-full shadow-md flex items-center justify-center bg-white shrink-0 relative">
                 <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover bg-slate-200" />
@@ -483,6 +490,57 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                 <p className="text-xs text-slate-500 truncate">{user.specialty || 'Profissional'}</p>
             </div>
        </div>
+
+       {/* Card: medalha/trofeu, nível, especialidade, barra de progresso, estrelas */}
+       {(() => {
+         const level = (user.level || 'bronze') as 'bronze' | 'silver' | 'gold' | 'diamond';
+         const verified = user.verified_count ?? 0;
+         const isDiamond = level === 'diamond';
+         const levelLabels: Record<string, string> = { bronze: 'Bronze', silver: 'Prata', gold: 'Ouro', diamond: 'Diamante' };
+         const nextThreshold = level === 'bronze' ? 10 : level === 'silver' ? 25 : level === 'gold' ? 50 : 50;
+         const currentThreshold = level === 'bronze' ? 0 : level === 'silver' ? 10 : level === 'gold' ? 25 : 50;
+         const toNext = nextThreshold - currentThreshold;
+         const progressInCurrent = verified - currentThreshold;
+         const progressPct = isDiamond ? 100 : Math.min(100, Math.max(0, (progressInCurrent / toNext) * 100));
+         const remaining = isDiamond ? 0 : Math.max(0, nextThreshold - verified);
+         const levelColors: Record<string, string> = {
+           bronze: 'bg-amber-800/10 text-amber-800 border-amber-200',
+           silver: 'bg-slate-100 text-slate-600 border-slate-200',
+           gold: 'bg-amber-100 text-amber-700 border-amber-200',
+           diamond: 'bg-cyan-50 text-cyan-600 border-cyan-200',
+         };
+         const LevelIcon = level === 'diamond' ? Trophy : Medal;
+         return (
+           <div className={`rounded-xl border p-4 shadow-sm ${levelColors[level]}`}>
+             <div className="flex items-center gap-4">
+               <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center shrink-0 ${level === 'diamond' ? 'bg-cyan-100 border-cyan-200' : level === 'gold' ? 'bg-amber-100 border-amber-200' : level === 'silver' ? 'bg-slate-100 border-slate-200' : 'bg-amber-100 border-amber-200'}`}>
+                 <LevelIcon size={28} className={level === 'diamond' ? 'text-cyan-600' : level === 'gold' ? 'text-amber-600' : level === 'silver' ? 'text-slate-500' : 'text-amber-700'} />
+               </div>
+               <div className="flex-1 min-w-0">
+                 <p className="font-black text-slate-800 uppercase text-sm">{levelLabels[level]}</p>
+                 <p className="text-xs text-slate-500 truncate">{user.specialty || 'Profissional'}</p>
+                 <div className="flex items-center gap-2 mt-1">
+                   <StarRatingDisplay rating={user.rating ?? 0} size={14} />
+                   <span className="text-xs font-bold text-slate-600">{(user.rating ?? 0).toFixed(1)}</span>
+                 </div>
+               </div>
+             </div>
+             {isDiamond ? (
+               <p className="text-sm font-bold text-cyan-700 mt-3">Parabéns! Você é um profissional nível máximo.</p>
+             ) : (
+               <div className="mt-3">
+                 <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                   <span>Progresso para próximo nível</span>
+                   <span>{remaining} {remaining === 1 ? 'serviço' : 'serviços'} restante{remaining !== 1 ? 's' : ''}</span>
+                 </div>
+                 <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                   <div className="h-full bg-brand-orange rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+                 </div>
+               </div>
+             )}
+           </div>
+         );
+       })()}
 
        {/* DAILY CAP BANNER */}
        {todayPoints >= POINTS_RULES.WORKER_DAILY_CAP && (

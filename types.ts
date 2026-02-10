@@ -32,6 +32,8 @@ export interface User {
 
   /** Nível de carreira (worker): bronze, silver, gold, diamond */
   level?: 'bronze' | 'silver' | 'gold' | 'diamond';
+  /** Serviços com avaliação > 2 (conta para subir de nível) */
+  verified_count?: number;
 }
 
 export interface ServiceCategory {
