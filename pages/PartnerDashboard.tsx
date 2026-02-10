@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { User, Coupon } from '../types';
 import { supabase } from '../services/supabase';
 import { Button } from '../components/Button';
-import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft, QrCode, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, X, Lock, History, Ticket, CheckCircle, ArrowLeft, QrCode, RefreshCw, Briefcase } from 'lucide-react';
 
 // QR Code Generator
 const QRCodeDisplay: React.FC<{ value: string }> = ({ value }) => {
@@ -14,8 +14,8 @@ const QRCodeDisplay: React.FC<{ value: string }> = ({ value }) => {
 export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
     const navigate = useNavigate();
     const pathname = useLocation().pathname;
-    const activeTab: 'coupons' | 'pos' | 'history' =
-        pathname.includes('/pos') ? 'pos' : pathname.includes('/history') ? 'history' : 'coupons';
+    const activeTab: 'coupons' | 'pos' | 'history' | 'hire' =
+        pathname.includes('/hire') ? 'hire' : pathname.includes('/pos') ? 'pos' : pathname.includes('/history') ? 'history' : 'coupons';
 
     const [partnerId, setPartnerId] = useState<string | null>(null);
     const [isPinSet, setIsPinSet] = useState(false);
@@ -211,27 +211,25 @@ export const PartnerDashboard: React.FC<{ user: User }> = ({ user }) => {
     if (!partnerId) return <div className="p-10 text-center">Carregando dados do parceiro...</div>;
 
     return (
-        <div className="space-y-6 w-full max-w-full">
-            <div className="flex gap-2 border-b border-slate-200 pb-2 overflow-x-auto no-scrollbar">
-                <button 
-                    onClick={() => navigate('/partner/coupons')}
-                    className={`px-4 py-2 font-bold whitespace-nowrap ${activeTab === 'coupons' ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-slate-500'}`}
-                >
-                    Gerenciar Cupons
-                </button>
-                <button 
-                    onClick={() => navigate('/partner/pos')}
-                    className={`px-4 py-2 font-bold whitespace-nowrap ${activeTab === 'pos' ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-slate-500'}`}
-                >
-                    Ponto de Venda (QR)
-                </button>
-                <button 
-                    onClick={() => navigate('/partner/history')}
-                    className={`px-4 py-2 font-bold whitespace-nowrap ${activeTab === 'history' ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-slate-500'}`}
-                >
-                    Histórico
-                </button>
-            </div>
+        <div className="space-y-6 w-full max-w-full pb-24">
+            {activeTab === 'hire' && (
+                <div className="animate-fade-in bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="w-12 h-12 rounded-xl bg-brand-orange/10 flex items-center justify-center">
+                            <Briefcase className="text-brand-orange" size={28} />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-lg text-slate-800">Contratar Profissionais</h3>
+                            <p className="text-sm text-slate-500">Serviços terceirizados para sua loja</p>
+                        </div>
+                    </div>
+                    <p className="text-slate-600 text-sm mb-6">
+                        Como parceiro, você pode abrir pedidos para profissionais realizarem serviços na sua loja. 
+                        Quando a proposta aparecer para o profissional, ela será exibida como <strong>Proposta de lojista</strong>.
+                    </p>
+                    <p className="text-sm text-slate-400 italic">Em breve você poderá criar pedidos daqui. Por enquanto, use a área do app como Cliente (troque de perfil) para contratar.</p>
+                </div>
+            )}
 
             {activeTab === 'coupons' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">

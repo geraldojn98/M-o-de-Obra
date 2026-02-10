@@ -5,6 +5,7 @@ import { Button } from '../components/Button';
 import * as Icons from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
+import { ChatListPage } from '../components/ChatListPage';
 import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import { WorkerProfileModal } from '../components/WorkerProfileModal';
 import { LevelBadge } from '../components/LevelBadge';
@@ -76,7 +77,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
-  const activeTab: 'home' | 'jobs' = pathname.includes('/myservices') ? 'jobs' : 'home';
+  const activeTab: 'home' | 'jobs' = pathname.includes('/myservices') ? 'jobs' : pathname.includes('/chat') ? 'jobs' : 'home';
   const viewMode: 'selection' | 'post_job' | 'find_pro' =
     pathname.includes('/openservice') ? 'post_job' : pathname.includes('/workerselect') ? 'find_pro' : 'selection';
 
@@ -460,12 +461,11 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
         </div>
       )}
 
-      <div className="flex space-x-2 overflow-x-auto pb-2 no-scrollbar">
-        <Button variant={activeTab === 'home' ? 'primary' : 'outline'} onClick={() => navigate('/client')} size="sm" className="whitespace-nowrap">Início</Button>
-        <Button variant={activeTab === 'jobs' ? 'primary' : 'outline'} onClick={() => navigate('/client/myservices')} size="sm" className="whitespace-nowrap">Meus Pedidos</Button>
-      </div>
+      {pathname.includes('/chat') && (
+        <ChatListPage user={user} role="client" />
+      )}
 
-      {activeTab === 'home' && (
+      {!pathname.includes('/chat') && activeTab === 'home' && (
           <>
             {viewMode === 'selection' && (
                 <div className="space-y-6 animate-fade-in">
@@ -655,7 +655,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ user, isGuest 
           </>
       )}
 
-      {activeTab === 'jobs' && (
+      {!pathname.includes('/chat') && activeTab === 'jobs' && (
         <div className="space-y-8 animate-fade-in">
            <div>
                <h3 className="font-bold text-lg text-brand-blue mb-4 flex items-center gap-2"><Icons.Briefcase size={20}/> Em Andamento</h3>

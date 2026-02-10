@@ -5,6 +5,7 @@ import { Button } from '../components/Button';
 import { Camera, CheckCircle, MessageCircle, XCircle, Clock, AlertTriangle, X, ShieldAlert, Zap, MapPin, Ticket, Store, ImagePlus, Trash2 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { ChatWindow } from '../components/ChatWindow';
+import { ChatListPage } from '../components/ChatListPage';
 import { LevelBadge } from '../components/LevelBadge';
 import { EmptyState } from '../components/EmptyState';
 import * as NotificationService from '../services/notifications';
@@ -501,6 +502,10 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
             </div>
        </div>
 
+       {pathname.includes('/chat') ? (
+         <ChatListPage user={user} role="worker" />
+       ) : (
+         <>
        {/* Tabs */}
        <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
          <button className={`px-4 py-3 text-sm font-medium whitespace-nowrap ${activeTab === 'jobs' ? 'border-b-2 border-brand-orange text-brand-orange' : 'text-slate-500'}`} onClick={() => navigate('/worker')}>Novos Pedidos</button>
@@ -647,6 +652,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({ user }) => {
                </div>
              )}
            </div>
+       )}
+         </>
        )}
 
         {modalType === 'finish' && (

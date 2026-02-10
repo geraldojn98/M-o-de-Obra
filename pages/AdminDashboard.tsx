@@ -5,7 +5,7 @@ import { Button } from '../components/Button';
 import { 
     Users, Briefcase, Store, Search, Trash2, Edit, 
     X, BellRing, Send, ChevronRight, CheckSquare, Square, Calendar, DollarSign, Lightbulb,
-    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText, Clock, Filter
+    ShieldAlert, AlertTriangle, CheckCircle, Ban, FileText, Clock, Filter, MessageCircle
 } from 'lucide-react';
 import { Partner, CategorySuggestion, POINTS_RULES } from '../types';
 import { LevelBadge } from '../components/LevelBadge';
@@ -13,7 +13,7 @@ import { StarRatingDisplay } from '../components/StarRatingDisplay';
 import * as NotificationService from '../services/notifications';
 import { DEFAULT_AVATAR } from '../constants/defaultAvatar';
 
-type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies';
+type AdminTab = 'overview' | 'users' | 'jobs' | 'partners' | 'notifications' | 'suggestions' | 'redlist' | 'replies' | 'support';
 
 const LEVELS = [
     { id: 'bronze', label: 'Bronze', class: 'bg-amber-800 text-amber-100' },
@@ -192,7 +192,7 @@ const EditUserModal: React.FC<{ user: any, onClose: () => void, onSave: () => vo
     );
 };
 
-const ADMIN_TAB_IDS: AdminTab[] = ['overview', 'users', 'jobs', 'partners', 'notifications', 'suggestions', 'redlist', 'replies'];
+const ADMIN_TAB_IDS: AdminTab[] = ['overview', 'users', 'jobs', 'partners', 'notifications', 'suggestions', 'redlist', 'replies', 'support'];
 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -350,6 +350,50 @@ export const AdminDashboard: React.FC = () => {
   const [appealsRecurrence, setAppealsRecurrence] = useState<Record<string, number>>({});
   // Modal de aprovar recurso: escolher nível (bronze ou anterior)
   const [appealApproveModal, setAppealApproveModal] = useState<{ appeal: any; levelBeforeBan: string | null } | null>(null);
+
+  // Suporte: chat com usuários
+  const [adminId, setAdminId] = useState<string | null>(null);
+  const [supportList, setSupportList] = useState<{ user_id: string; full_name: string; last_at: string }[]>([]);
+  const [selectedSupportUserId, setSelectedSupportUserId] = useState<string | null>(null);
+  const [supportMessages, setSupportMessages] = useState<{ id: string; sender_id: string; content: string; created_at: string }[]>([]);
+  const [supportReply, setSupportReply] = useState('');
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => user && setAdminId(user.id));
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'support') return;
+    const load = async () => {
+      const { data: rows } = await supabase.from('support_messages').select('user_id, created_at').order('created_at', { ascending: false });
+      const byUser: Record<string, string> = {};
+      rows?.forEach((r: any) => { if (!byUser[r.user_id]) byUser[r.user_id] = r.created_at; });
+      const ids = Object.keys(byUser);
+      if (ids.length === 0) { setSupportList([]); return; }
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', ids);
+      setSupportList(ids.map(id => ({ user_id: id, full_name: (profiles?.find((p: any) => p.id === id) as any)?.full_name || id.slice(0, 8), last_at: byUser[id] })));
+    };
+    load();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectedSupportUserId) { setSupportMessages([]); return; }
+    const load = async () => {
+      const { data } = await supabase.from('support_messages').select('id, sender_id, content, created_at').eq('user_id', selectedSupportUserId).order('created_at', { ascending: true });
+      setSupportMessages(data || []);
+    };
+    load();
+    const channel = supabase.channel(`support_conv_${selectedSupportUserId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `user_id=eq.${selectedSupportUserId}` }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedSupportUserId]);
+
+  const sendSupportReply = async () => {
+    if (!adminId || !selectedSupportUserId || !supportReply.trim()) return;
+    await supabase.from('support_messages').insert({ user_id: selectedSupportUserId, sender_id: adminId, content: supportReply.trim() });
+    setSupportReply('');
+  };
 
   useEffect(() => {
     fetchData();
@@ -734,7 +778,8 @@ export const AdminDashboard: React.FC = () => {
                       { id: 'replies', label: 'Tréplicas', icon: FileText, badgeKey: 'replies' },
                       { id: 'partners', label: 'Parceiros', icon: Store, badgeKey: 'partners' },
                       { id: 'suggestions', label: 'Sugestões', icon: Lightbulb, badgeKey: 'suggestions' },
-                      { id: 'notifications', label: 'Avisos', icon: BellRing, badgeKey: null }
+                      { id: 'notifications', label: 'Avisos', icon: BellRing, badgeKey: null },
+                      { id: 'support', label: 'Suporte', icon: MessageCircle, badgeKey: null }
                   ].map(tab => {
                     const badgeCount = tab.badgeKey ? notifications[tab.badgeKey] : 0;
                     return (
@@ -1222,6 +1267,52 @@ export const AdminDashboard: React.FC = () => {
                   <textarea className="w-full p-4 bg-slate-50 border-0 rounded-2xl h-32 outline-none focus:ring-2 focus:ring-brand-orange" placeholder="Sua mensagem para os usuários..." value={notifMsg} onChange={e => setNotifMsg(e.target.value)} />
                   <Button fullWidth size="lg" className="rounded-2xl shadow-lg shadow-orange-200" onClick={handleSendNotification} disabled={loading}> <Send size={18} className="mr-2"/> {loading ? 'Enviando...' : 'Disparar Notificação'} </Button>
               </div>
+          </div>
+      )}
+
+      {activeTab === 'support' && (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 animate-fade-in overflow-hidden flex flex-col max-h-[70vh]">
+              <h3 className="font-black text-xl text-slate-800 p-4 flex items-center gap-2"><MessageCircle className="text-brand-orange"/> Chat Suporte</h3>
+              {!selectedSupportUserId ? (
+                <div className="overflow-y-auto flex-1 p-2">
+                  {supportList.length === 0 ? (
+                    <p className="text-slate-500 text-sm p-4">Nenhuma conversa ainda.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {supportList.map(c => (
+                        <button key={c.user_id} type="button" onClick={() => setSelectedSupportUserId(c.user_id)} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 text-left">
+                          <span className="font-bold text-slate-800 truncate">{c.full_name}</span>
+                          <span className="text-xs text-slate-400">{new Date(c.last_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="border-t border-slate-100 p-2 flex items-center justify-between bg-slate-50">
+                    <span className="font-bold text-slate-800">{supportList.find(c => c.user_id === selectedSupportUserId)?.full_name || 'Usuário'}</span>
+                    <button type="button" onClick={() => setSelectedSupportUserId(null)} className="text-slate-500 hover:text-slate-700 p-1"><X size={20}/></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-[200px]">
+                    {supportMessages.map(m => {
+                      const isAdmin = m.sender_id === adminId;
+                      return (
+                        <div key={m.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${isAdmin ? 'bg-brand-orange text-white' : 'bg-slate-100 text-slate-800'}`}>
+                            {m.content}
+                            <p className={`text-[10px] mt-1 ${isAdmin ? 'text-orange-100' : 'text-slate-400'}`}>{new Date(m.created_at).toLocaleString([], { timeStyle: 'short' })}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <form onSubmit={(e) => { e.preventDefault(); sendSupportReply(); }} className="p-3 border-t border-slate-100 flex gap-2">
+                    <input value={supportReply} onChange={e => setSupportReply(e.target.value)} placeholder="Resposta..." className="flex-1 bg-slate-100 border-0 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-orange" />
+                    <Button type="submit" size="sm" disabled={!supportReply.trim()}>Enviar</Button>
+                  </form>
+                </>
+              )}
           </div>
       )}
 

@@ -17,6 +17,8 @@ import { PartnersPage } from './pages/PartnersPage';
 import { PartnerDashboard } from './pages/PartnerDashboard';
 import { supabase } from './services/supabase';
 import { NotificationBell } from './components/NotificationBell';
+import { AppBottomNav } from './components/AppBottomNav';
+import { SupportChat } from './components/SupportChat';
 import { Footer } from './components/Footer';
 import { IMAGES } from './logos';
 import { DEFAULT_AVATAR } from './constants/defaultAvatar';
@@ -224,7 +226,7 @@ const CityChangeModal: React.FC<{ currentCity: string, newCity: string, onUpdate
 
 // --- HELPER MODALS ---
 
-const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+const HelpModal: React.FC<{ onClose: () => void; onOpenSupportChat?: () => void }> = ({ onClose, onOpenSupportChat }) => (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-6 animate-fade-in backdrop-blur-sm">
         <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center relative">
             <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><X size={24}/></button>
@@ -233,8 +235,13 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
             <p className="text-slate-500 mb-6 leading-relaxed">Nossa equipe de suporte está pronta para te atender!</p>
             
             <div className="space-y-3">
-                <p className="text-xs text-slate-500">Entre em contato pelo e-mail ou use o chat dentro do app com seu profissional.</p>
-                <a href="mailto:suporte@appmaodeobra.com" className="flex items-center justify-center gap-3 w-full bg-brand-orange hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-orange-200">
+                {onOpenSupportChat && (
+                    <button type="button" onClick={() => { onClose(); onOpenSupportChat(); }} className="flex items-center justify-center gap-3 w-full bg-brand-orange hover:bg-orange-600 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-orange-200">
+                        <MessageCircle size={24} /> Falar com o suporte (chat)
+                    </button>
+                )}
+                <p className="text-xs text-slate-500">Ou entre em contato pelo e-mail:</p>
+                <a href="mailto:suporte@appmaodeobra.com" className="flex items-center justify-center gap-3 w-full border-2 border-slate-200 hover:border-brand-orange text-slate-700 font-bold py-4 rounded-2xl transition-all">
                     <Mail size={24} /> suporte@appmaodeobra.com
                 </a>
             </div>
@@ -863,6 +870,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const canAddClient = hasWorker && !hasClient;
   const isDashboardPath = pathname.startsWith('/client') || pathname.startsWith('/worker') || pathname.startsWith('/admin') || pathname.startsWith('/partner');
   const isPartnersPath = pathname === '/partners';
+  const showBottomNav = ['client', 'worker', 'partner'].includes(auth.effectiveUser.role);
 
   const DrawerMenu = () => (
     <div className="fixed inset-0 z-[100] flex">
@@ -923,9 +931,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-[80] px-4 py-3 w-full shadow-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center w-full">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(auth.isGuest ? '/client' : roleToPath(auth.effectiveUser.role))} className="p-2 rounded-xl text-slate-500 hover:text-brand-orange hover:bg-orange-50 transition-colors" title="Início" aria-label="Início">
-              <Home size={22} />
-            </button>
             {auth.isGuest ? (
               <div className="flex items-center gap-2">
                 <span className="font-bold text-slate-600 text-sm">Visitante</span>
@@ -954,17 +959,21 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               </button>
             )}
             {!auth.isGuest && (
-              <button onClick={() => auth.setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80">
+              <button onClick={() => auth.setShowHelp(true)} className="active:scale-95 transition-transform hover:opacity-80 relative" title="Ajuda">
                 <Mascot className="w-10 h-10 object-contain rounded-full border-2 border-white shadow-sm" variant="face" />
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-brand-orange text-white flex items-center justify-center text-xs font-black shadow">?</span>
               </button>
             )}
           </div>
         </div>
       </header>
       {!auth.isGuest && auth.isDrawerOpen && <DrawerMenu />}
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden">
+      <main className={`flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 overflow-x-hidden ${showBottomNav ? 'pb-24' : ''}`}>
         {children}
       </main>
+      {showBottomNav && (
+        <AppBottomNav role={auth.effectiveUser.role} isGuest={auth.isGuest} />
+      )}
     </div>
   );
 }
@@ -974,6 +983,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSupportChat, setShowSupportChat] = useState(false);
   const [showPointsModal, setShowPointsModal] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
@@ -1258,7 +1268,8 @@ export default function App() {
 
       {(currentUser || isGuestMode) && (
         <>
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} onOpenSupportChat={() => setShowSupportChat(true)} />}
+      {showSupportChat && currentUser && !isGuestMode && <SupportChat user={currentUser} onClose={() => setShowSupportChat(false)} />}
       {showPointsModal && currentUser && <PointsModal user={currentUser} onClose={() => setShowPointsModal(false)} />}
       
       {showEditProfile && currentUser && (
